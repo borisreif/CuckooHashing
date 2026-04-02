@@ -1,164 +1,274 @@
+// Bucketed cuckoo hashing using ONE flat 1D array.
+//
+// Logical structure:
+// - ver tables
+// - each table has BUCKET_COUNT buckets
+// - each bucket has BUCKET_SIZE slots
+//
+// Physical structure:
+// - one contiguous flat array
+//
+// Example layout when ver = 2, BUCKET_COUNT = 5, BUCKET_SIZE = 2:
+//
+// table 0:
+// |____|____| |____|____| |____|____| |____|____| |____|____|
+//
+// table 1:
+// |____|____| |____|____| |____|____| |____|____| |____|____|
+//
+// flat array:
+// |____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|
+//
+// bucket 0        bucket 1        bucket 2        bucket 3        bucket 4
+// [slot0 slot1]   [slot0 slot1]   [slot0 slot1]   [slot0 slot1]   [slot0 slot1]
 
 
-// Javascript program to demonstrate
-// classic cuckoo hashing using ONE flat 1D array.
-
-// number of logical tables
+// number of tables
 let ver = 2;
 
-// slots per logical table
-let MAXN = 11;
+// number of buckets per table
+let BUCKET_COUNT = 11;
+
+// number of slots in each bucket
+let BUCKET_SIZE = 2;
+
+// total number of cells in one table
+let TABLE_SIZE = BUCKET_COUNT * BUCKET_SIZE;
+
+// total number of cells overall
+let TOTAL_SIZE = ver * TABLE_SIZE;
 
 // empty marker
 let EMPTY = Number.MIN_VALUE;
 
-/*
-    Flat 1D layout:
+// maximum number of displacements before we give up
+let MAX_KICKS = 20;
 
-    table 0                  table 1
-    |____|____|____|____|____|____|____|____|____|____|____|
-    |____|____|____|____|____|____|____|____|____|____|____|
+// one flat 1D array storing everything contiguously
+let hashtable = new Array(TOTAL_SIZE).fill(EMPTY);
 
-    physical flat array:
-    |____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|
+// stores the candidate bucket for each table for a given key
+let pos = new Array(ver).fill(0);
 
-    indices:
-      0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21
-
-    mapping:
-    table 0, pos p  -> flat[p]
-    table 1, pos p  -> flat[MAXN + p]
-*/
-
-// one flat array instead of hashtable[table][pos]
-let hashtable = new Array(ver * MAXN).fill(EMPTY);
-
-// Array to store possible positions for a key
-let pos = Array(ver).fill(0);
 
 /*
-    Convert logical coordinates (tableID, pos)
-    into one flat 1D index.
+    Convert logical coordinates:
+
+        (tableID, bucketID, slotID)
+
+    into one flat 1D array index.
+
+    Layout formula:
+        table offset + bucket offset + slot offset
 */
-function index(tableID, position)
+function index(tableID, bucketID, slotID)
 {
-    return tableID * MAXN + position;
+    return tableID * TABLE_SIZE + bucketID * BUCKET_SIZE + slotID;
 }
 
+
 /*
-    Fill hash table with dummy value.
+    Reset whole table to EMPTY.
 */
 function initTable()
 {
     hashtable.fill(EMPTY);
 }
 
+
 /*
-    Return hashed value for a key.
-    This returns the logical position INSIDE one table.
+    Hash function.
+    Returns a BUCKET index, not a single slot index.
+
+    So for a key, each hash function chooses one candidate bucket.
 */
 function hash(funcID, key)
 {
     switch (funcID)
     {
-        case 1: return key % MAXN;
-        case 2: return Math.floor(key / MAXN) % MAXN;
+        case 1: return key % BUCKET_COUNT;
+        case 2: return Math.floor(key / BUCKET_COUNT) % BUCKET_COUNT;
     }
-    return EMPTY;
+    return -1;
 }
 
-/*
-    Place a key in one of its possible positions.
 
-    tableID: which logical table to try
-    cnt    : number of recursive displacements so far
-    n      : max number of allowed recursive displacements
+/*
+    Search for a key inside one specific bucket.
+
+    Return:
+    - slot index if found
+    - -1 if not found
 */
-function place(key, tableID, cnt, n)
+function findKeyInBucket(tableID, bucketID, key)
 {
-    // cycle / too many displacements
-    if (cnt == n)
+    for (let slot = 0; slot < BUCKET_SIZE; slot++)
+    {
+        let idx = index(tableID, bucketID, slot);
+        if (hashtable[idx] === key)
+            return slot;
+    }
+    return -1;
+}
+
+
+/*
+    Search for an empty slot inside one specific bucket.
+
+    Return:
+    - slot index if found
+    - -1 if bucket is full
+*/
+function findEmptySlot(tableID, bucketID)
+{
+    for (let slot = 0; slot < BUCKET_SIZE; slot++)
+    {
+        let idx = index(tableID, bucketID, slot);
+        if (hashtable[idx] === EMPTY)
+            return slot;
+    }
+    return -1;
+}
+
+
+/*
+    Place a key using bucketed cuckoo hashing.
+
+    key     : key to insert
+    tableID : which table we are currently trying
+    cnt     : current number of displacements
+    limit   : maximum allowed number of displacements
+
+    Idea:
+    1. Compute the candidate bucket in each table.
+    2. If key already exists, stop.
+    3. Try to place key in a free slot in the chosen bucket.
+    4. If bucket is full, evict one key and recursively reinsert it
+       into the next table.
+*/
+function place(key, tableID, cnt, limit)
+{
+    // Too many displacements => likely cycle / bad configuration
+    if (cnt >= limit)
     {
         document.write(key + " unpositioned<br/>");
-        document.write("Cycle present. REHASH.<br/>");
+        document.write("Cycle present or kick limit reached. REHASH.<br/>");
         return;
     }
 
-    // compute both candidate logical positions
+    // Compute candidate bucket in every table for this key
     for (let i = 0; i < ver; i++)
     {
         pos[i] = hash(i + 1, key);
 
-        // already present?
-        if (hashtable[index(i, pos[i])] == key)
+        // If key is already in the table, do nothing
+        if (findKeyInBucket(i, pos[i], key) !== -1)
             return;
     }
 
-    let idx = index(tableID, pos[tableID]);
+    let bucketID = pos[tableID];
 
-    // occupied -> evict and recurse
-    if (hashtable[idx] != EMPTY)
+    // First try to insert into a free slot in this bucket
+    let emptySlot = findEmptySlot(tableID, bucketID);
+
+    if (emptySlot !== -1)
     {
-        let dis = hashtable[idx];
-        hashtable[idx] = key;
-        place(dis, (tableID + 1) % ver, cnt + 1, n);
+        hashtable[index(tableID, bucketID, emptySlot)] = key;
+        return;
     }
-    else
-    {
-        // empty -> place directly
-        hashtable[idx] = key;
-    }
+
+    // If no free slot exists, bucket is full.
+    // Evict one existing key from this bucket.
+    //
+    // Here we use a simple deterministic victim choice:
+    // alternate by displacement count.
+    let victimSlot = cnt % BUCKET_SIZE;
+    let victimIndex = index(tableID, bucketID, victimSlot);
+
+    let displaced = hashtable[victimIndex];
+    hashtable[victimIndex] = key;
+
+    // Reinsert displaced key into the next table
+    place(displaced, (tableID + 1) % ver, cnt + 1, limit);
 }
 
+
 /*
-    Lookup a key by checking its two candidate positions.
+    Lookup a key.
+
+    A key may live in:
+    - any slot of its bucket in table 0
+    - any slot of its bucket in table 1
+
+    So we:
+    1. compute the candidate bucket in each table
+    2. scan all slots in those buckets
 */
 function lookup(key)
 {
-    for (let i = 0; i < ver; i++)
+    for (let tableID = 0; tableID < ver; tableID++)
     {
-        let p = hash(i + 1, key);
-        let idx = index(i, p);
+        let bucketID = hash(tableID + 1, key);
 
-        if (hashtable[idx] == key)
+        for (let slot = 0; slot < BUCKET_SIZE; slot++)
         {
-            return {
-                found: true,
-                table: i,
-                position: p,
-                flatIndex: idx
-            };
+            let idx = index(tableID, bucketID, slot);
+
+            if (hashtable[idx] === key)
+            {
+                return {
+                    found: true,
+                    table: tableID,
+                    bucket: bucketID,
+                    slot: slot,
+                    flatIndex: idx
+                };
+            }
         }
     }
 
     return { found: false };
 }
 
+
 /*
-    Print the final table both as logical tables
-    and as one flat physical array.
+    Print table in logical form:
+    table -> bucket -> slot
 */
 function printTable()
 {
-    document.write("Final logical hash tables:<br/>");
+    document.write("Final bucketed cuckoo tables:<br/><br/>");
 
-    for (let i = 0; i < ver; i++)
+    for (let tableID = 0; tableID < ver; tableID++)
     {
-        for (let j = 0; j < MAXN; j++)
+        document.write("Table " + tableID + ":<br/>");
+
+        for (let bucketID = 0; bucketID < BUCKET_COUNT; bucketID++)
         {
-            let value = hashtable[index(i, j)];
-            if (value == EMPTY)
-                document.write("- ");
-            else
-                document.write(value + " ");
+            document.write("Bucket " + bucketID + ": [ ");
+
+            for (let slot = 0; slot < BUCKET_SIZE; slot++)
+            {
+                let idx = index(tableID, bucketID, slot);
+                let value = hashtable[idx];
+
+                if (value === EMPTY)
+                    document.write("- ");
+                else
+                    document.write(value + " ");
+            }
+
+            document.write("]<br/>");
         }
+
         document.write("<br/>");
     }
 
-    document.write("<br/>Underlying flat 1D array:<br/>");
+    // Also print underlying flat array
+    document.write("Underlying flat 1D array:<br/>");
     for (let i = 0; i < hashtable.length; i++)
     {
-        if (hashtable[i] == EMPTY)
+        if (hashtable[i] === EMPTY)
             document.write("- ");
         else
             document.write(hashtable[i] + " ");
@@ -166,15 +276,18 @@ function printTable()
     document.write("<br/><br/>");
 }
 
+
 /*
-    Cuckoo-hash all keys.
+    Insert all keys into the cuckoo table.
 */
 function cuckoo(keys, n)
 {
     initTable();
 
-    for (let i = 0, cnt = 0; i < n; i++, cnt = 0)
-        place(keys[i], 0, cnt, n);
+    for (let i = 0; i < n; i++)
+    {
+        place(keys[i], 0, 0, Math.max(MAX_KICKS, n));
+    }
 
     printTable();
 }
@@ -182,14 +295,10 @@ function cuckoo(keys, n)
 
 // Driver program
 
-// no cycle
-let keys_1 = [20, 50, 53, 75, 100, 67, 105, 3, 36, 39];
-cuckoo(keys_1, keys_1.length);
+let keys = [20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
+
+cuckoo(keys, keys.length);
 
 document.write("Lookup 67: " + JSON.stringify(lookup(67)) + "<br/>");
-document.write("Lookup 999: " + JSON.stringify(lookup(999)) + "<br/><br/>");
-
-// likely cycle / rehash case
-let keys_2 = [20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
-cuckoo(keys_2, keys_2.length);
+document.write("Lookup 999: " + JSON.stringify(lookup(999)) + "<br/>");
 
