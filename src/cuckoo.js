@@ -1,143 +1,195 @@
 
-// Javascript program to demonstrate working of 
-// Cuckoo hashing.
 
-// upper bound on number of elements in our set
-let MAXN = 11;
-  
-// choices for position
+// Javascript program to demonstrate
+// classic cuckoo hashing using ONE flat 1D array.
+
+// number of logical tables
 let ver = 2;
-  
-// Auxiliary space bounded by a small multiple
-// of MAXN, minimizing wastage
-let hashtable = new Array(ver);
-//document.write(hashtable.length);
-for (var i = 0; i < hashtable.length; i++) {
-    hashtable[i] = new Array(MAXN);
-}
-  
+
+// slots per logical table
+let MAXN = 11;
+
+// empty marker
+let EMPTY = Number.MIN_VALUE;
+
+/*
+    Flat 1D layout:
+
+    table 0                  table 1
+    |____|____|____|____|____|____|____|____|____|____|____|
+    |____|____|____|____|____|____|____|____|____|____|____|
+
+    physical flat array:
+    |____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|
+
+    indices:
+      0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15   16   17   18   19   20   21
+
+    mapping:
+    table 0, pos p  -> flat[p]
+    table 1, pos p  -> flat[MAXN + p]
+*/
+
+// one flat array instead of hashtable[table][pos]
+let hashtable = new Array(ver * MAXN).fill(EMPTY);
+
 // Array to store possible positions for a key
 let pos = Array(ver).fill(0);
-  
-/* function to fill hash table with dummy value
-* dummy value: let_MIN
-* number of hashtables: ver */
+
+/*
+    Convert logical coordinates (tableID, pos)
+    into one flat 1D index.
+*/
+function index(tableID, position)
+{
+    return tableID * MAXN + position;
+}
+
+/*
+    Fill hash table with dummy value.
+*/
 function initTable()
 {
-    for (let j = 0; j < MAXN; j++)
-        for (let i = 0; i < ver; i++)
-            hashtable[i][j] = Number.MIN_VALUE;
+    hashtable.fill(EMPTY);
 }
-  
-/* return hashed value for a key
-* function: ID of hash function according to which
-    key has to hashed
-* key: item to be hashed */
+
+/*
+    Return hashed value for a key.
+    This returns the logical position INSIDE one table.
+*/
 function hash(funcID, key)
 {
     switch (funcID)
     {
         case 1: return key % MAXN;
-        case 2: return (Math.floor(key / MAXN)) % MAXN;
+        case 2: return Math.floor(key / MAXN) % MAXN;
     }
-    return Number.MIN_VALUE;
+    return EMPTY;
 }
-  
-/* function to place a key in one of its possible positions
-* tableID: table in which key has to be placed, also equal
-  to function according to which key must be hashed
-* cnt: number of times function has already been called
-  in order to place the first input key
-* n: maximum number of times function can be recursively
-  called before stopping and declaring presence of cycle */
+
+/*
+    Place a key in one of its possible positions.
+
+    tableID: which logical table to try
+    cnt    : number of recursive displacements so far
+    n      : max number of allowed recursive displacements
+*/
 function place(key, tableID, cnt, n)
 {
-    /* if function has been recursively called max number
-    of times, stop and declare cycle. Rehash. */
+    // cycle / too many displacements
     if (cnt == n)
     {
-        document.write(key + " unpositioned" + "<br/>");
-        document.write("Cycle present. REHASH." + "<br/>");
+        document.write(key + " unpositioned<br/>");
+        document.write("Cycle present. REHASH.<br/>");
         return;
     }
-  
-    /* calculate and store possible positions for the key.
-    * check if key already present at any of the positions.
-    If YES, return. */
+
+    // compute both candidate logical positions
     for (let i = 0; i < ver; i++)
     {
         pos[i] = hash(i + 1, key);
-        if (hashtable[i][pos[i]] == key)
+
+        // already present?
+        if (hashtable[index(i, pos[i])] == key)
             return;
     }
-  
-    /* check if another key is already present at the
-       position for the new key in the table
-    * If YES: place the new key in its position
-    * and place the older key in an alternate position
-    for it in the next table */
-    if (hashtable[tableID][pos[tableID]] != Number.MIN_VALUE)
+
+    let idx = index(tableID, pos[tableID]);
+
+    // occupied -> evict and recurse
+    if (hashtable[idx] != EMPTY)
     {
-        let dis = hashtable[tableID][pos[tableID]];
-        hashtable[tableID][pos[tableID]] = key;
+        let dis = hashtable[idx];
+        hashtable[idx] = key;
         place(dis, (tableID + 1) % ver, cnt + 1, n);
     }
-    else // else: place the new key in its position
-        hashtable[tableID][pos[tableID]] = key;
+    else
+    {
+        // empty -> place directly
+        hashtable[idx] = key;
+    }
 }
-  
-/* function to print hash table contents */
+
+/*
+    Lookup a key by checking its two candidate positions.
+*/
+function lookup(key)
+{
+    for (let i = 0; i < ver; i++)
+    {
+        let p = hash(i + 1, key);
+        let idx = index(i, p);
+
+        if (hashtable[idx] == key)
+        {
+            return {
+                found: true,
+                table: i,
+                position: p,
+                flatIndex: idx
+            };
+        }
+    }
+
+    return { found: false };
+}
+
+/*
+    Print the final table both as logical tables
+    and as one flat physical array.
+*/
 function printTable()
 {
-    document.write("Final hash tables:" + "<br/>");
-  
-    for (let i = 0; i < ver; i++, document.write("<br/>"))
+    document.write("Final logical hash tables:<br/>");
+
+    for (let i = 0; i < ver; i++)
+    {
         for (let j = 0; j < MAXN; j++)
-            if(hashtable[i][j] == Number.MIN_VALUE) 
+        {
+            let value = hashtable[index(i, j)];
+            if (value == EMPTY)
                 document.write("- ");
             else
-                document.write(hashtable[i][j] + " ");
-  
-    document.write("<br/>");
+                document.write(value + " ");
+        }
+        document.write("<br/>");
+    }
+
+    document.write("<br/>Underlying flat 1D array:<br/>");
+    for (let i = 0; i < hashtable.length; i++)
+    {
+        if (hashtable[i] == EMPTY)
+            document.write("- ");
+        else
+            document.write(hashtable[i] + " ");
+    }
+    document.write("<br/><br/>");
 }
-  
-/* function for Cuckoo-hashing keys
-* keys[]: input array of keys
-* n: size of input array */
+
+/*
+    Cuckoo-hash all keys.
+*/
 function cuckoo(keys, n)
 {
-    // initialize hash tables to a dummy value 
-    // (let-MIN) indicating empty position
     initTable();
-  
-    // start with placing every key at its position in
-    // the first hash table according to first hash
-    // function
+
     for (let i = 0, cnt = 0; i < n; i++, cnt = 0)
         place(keys[i], 0, cnt, n);
-  
-    // print the final hash tables
+
     printTable();
 }
 
-// Driver program 
 
-/* following array doesn't have any cycles and
-hence all keys will be inserted without any
-rehashing */
-let keys_1 = [20, 50, 53, 75, 100, 
-                    67, 105, 3, 36, 39];
-  
-let n = keys_1.length;
-  
-cuckoo(keys_1, n);
-  
-/* following array has a cycle and hence we will
-have to rehash to position every key */
-let keys_2 = [20, 50, 53, 75, 100, 
-                    67, 105, 3, 36, 39, 6];
-  
-let m = keys_2.length;
-  
-cuckoo(keys_2, m);
-      
+// Driver program
+
+// no cycle
+let keys_1 = [20, 50, 53, 75, 100, 67, 105, 3, 36, 39];
+cuckoo(keys_1, keys_1.length);
+
+document.write("Lookup 67: " + JSON.stringify(lookup(67)) + "<br/>");
+document.write("Lookup 999: " + JSON.stringify(lookup(999)) + "<br/><br/>");
+
+// likely cycle / rehash case
+let keys_2 = [20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
+cuckoo(keys_2, keys_2.length);
+
