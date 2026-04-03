@@ -1,54 +1,56 @@
 // Bucketed cuckoo hashing using ONE flat 1D array.
 //
 // Logical structure:
-// - ver tables
+// - NUM_TABLES tables
 // - each table has BUCKET_COUNT buckets
 // - each bucket has BUCKET_SIZE slots
 //
 // Physical structure:
 // - one contiguous flat array
 //
-// Example layout when ver = 2, BUCKET_COUNT = 5, BUCKET_SIZE = 2:
+// Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
 //
 // table 0:
-// |____|____| |____|____| |____|____| |____|____| |____|____|
+//
+//  |_____|_____|  |_____|_____|  |_____|_____| 
+//  bucket 0       bucket 1       bucket 2
+//  [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
+//
 //
 // table 1:
-// |____|____| |____|____| |____|____| |____|____| |____|____|
+//
+//  |_____|_____|  |_____|_____|  |_____|_____| 
+//  bucket 0       bucket 1       bucket 2
+//  [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
+//
 //
 // flat array:
-// |____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|____|
+// first part table 1, second part table 2
 //
-// bucket 0        bucket 1        bucket 2        bucket 3        bucket 4
-// [slot0 slot1]   [slot0 slot1]   [slot0 slot1]   [slot0 slot1]   [slot0 slot1]
+// |------------ table 0 ------------| |------------ table 1 ------------|
+// |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+//  bucket 0   bucket 1    bucket 2    bucket 3    bucket 4    bucket 5
+//  [ s0  s1 ] [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]
 
+const NUM_TABLES = 2;                         // num of tables
+const BUCKET_COUNT = 11;                      // num of buckets per table
+const BUCKET_SIZE = 2;                        // num of slots in each bucket
+const TABLE_SIZE = BUCKET_COUNT * BUCKET_SIZE;// total num of cells in one table
+const TOTAL_SIZE = NUM_TABLES * TABLE_SIZE;   // total num of cells overall
+const EMPTY = Number.MIN_VALUE;               // empty marker
 
-// number of tables
-let ver = 2;
-
-// number of buckets per table
-let BUCKET_COUNT = 11;
-
-// number of slots in each bucket
-let BUCKET_SIZE = 2;
-
-// total number of cells in one table
-let TABLE_SIZE = BUCKET_COUNT * BUCKET_SIZE;
-
-// total number of cells overall
-let TOTAL_SIZE = ver * TABLE_SIZE;
-
-// empty marker
-let EMPTY = Number.MIN_VALUE;
-
-// maximum number of displacements before we give up
-let MAX_KICKS = 20;
+const MAX_KICKS = 20; // maximum number of displacements before we give up
 
 // one flat 1D array storing everything contiguously
-let hashtable = new Array(TOTAL_SIZE).fill(EMPTY);
+let hashtable = new Array(TOTAL_SIZE).fill(EMPTY); 
+// TOTAL_SIZE (44) = BUCKET_COUNT(11) * BUCKET_SIZE(2) * NUM_TABLES(2)
+//console.log("Print hashtable: ");
+//hashtable.forEach(function(entry) {
+//    console.log(entry);
+//});
 
 // stores the candidate bucket for each table for a given key
-let pos = new Array(ver).fill(0);
+let pos = new Array(NUM_TABLES).fill(0);
 
 
 /*
@@ -82,9 +84,9 @@ function initTable()
 
     So for a key, each hash function chooses one candidate bucket.
 */
-function hash(funcID, key)
+function hash(hash_func, key)
 {
-    switch (funcID)
+    switch (hash_func)
     {
         case 1: return key % BUCKET_COUNT;
         case 2: return Math.floor(key / BUCKET_COUNT) % BUCKET_COUNT;
@@ -157,7 +159,7 @@ function place(key, tableID, cnt, limit)
     }
 
     // Compute candidate bucket in every table for this key
-    for (let i = 0; i < ver; i++)
+    for (let i = 0; i < NUM_TABLES; i++)
     {
         pos[i] = hash(i + 1, key);
 
@@ -189,7 +191,7 @@ function place(key, tableID, cnt, limit)
     hashtable[victimIndex] = key;
 
     // Reinsert displaced key into the next table
-    place(displaced, (tableID + 1) % ver, cnt + 1, limit);
+    place(displaced, (tableID + 1) % NUM_TABLES, cnt + 1, limit);
 }
 
 
@@ -206,7 +208,7 @@ function place(key, tableID, cnt, limit)
 */
 function lookup(key)
 {
-    for (let tableID = 0; tableID < ver; tableID++)
+    for (let tableID = 0; tableID < NUM_TABLES; tableID++)
     {
         let bucketID = hash(tableID + 1, key);
 
@@ -239,7 +241,7 @@ function printTable()
 {
     document.write("Final bucketed cuckoo tables:<br/><br/>");
 
-    for (let tableID = 0; tableID < ver; tableID++)
+    for (let tableID = 0; tableID < NUM_TABLES; tableID++)
     {
         document.write("Table " + tableID + ":<br/>");
 
