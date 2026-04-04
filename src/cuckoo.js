@@ -28,16 +28,20 @@
 // first part table 1, second part table 2
 //
 // |------------ table 0 ------------| |------------ table 1 ------------|
+//   id0  id1    id2  id3   id4  id5     id6  id7   id8   id9   id10 id11
 // |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
 //  bucket 0   bucket 1    bucket 2    bucket 3    bucket 4    bucket 5
 //  [ s0  s1 ] [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]
+
 
 const NUM_TABLES = 2;                         // num of tables
 const BUCKET_COUNT = 11;                      // num of buckets per table
 const BUCKET_SIZE = 2;                        // num of slots in each bucket
 const TABLE_SIZE = BUCKET_COUNT * BUCKET_SIZE;// total num of cells in one table
 const TOTAL_SIZE = NUM_TABLES * TABLE_SIZE;   // total num of cells overall
-const EMPTY = Number.MIN_VALUE;               // empty marker
+//const EMPTY = Number.MIN_VALUE;               // empty marker
+//const EMPTY = null;
+const EMPTY = Symbol("EMPTY");                // empty marker
 
 const MAX_KICKS = 20; // maximum number of displacements before we give up
 
@@ -50,7 +54,7 @@ let hashtable = new Array(TOTAL_SIZE).fill(EMPTY);
 //});
 
 // stores the candidate bucket for each table for a given key
-let pos = new Array(NUM_TABLES).fill(0);
+// let pos = new Array(NUM_TABLES).fill(0);
 
 
 /*
@@ -62,10 +66,21 @@ let pos = new Array(NUM_TABLES).fill(0);
 
     Layout formula:
         table offset + bucket offset + slot offset
-*/
+
 function index(tableID, bucketID, slotID)
 {
     return tableID * TABLE_SIZE + bucketID * BUCKET_SIZE + slotID;
+}
+    */
+
+function bucketStart(tableID, bucketID)
+{
+    return tableID * TABLE_SIZE + bucketID * BUCKET_SIZE;
+}
+
+function index(tableID, bucketID, slotID)
+{
+    return bucketStart(tableID, bucketID) + slotID;
 }
 
 
@@ -132,13 +147,64 @@ function findEmptySlot(tableID, bucketID)
     return -1;
 }
 
+function candidateBuckets(key)
+{
+    return Array.from({ length: NUM_TABLES }, (_, i) => hash(i + 1, key));
+}
+
+
+/*
+function contains(key)
+{
+    let buckets = candidateBuckets(key);
+
+    for (let tableID = 0; tableID < NUM_TABLES; tableID++)
+    {
+        if (findKeyInBucket(tableID, buckets[tableID], key) !== -1)
+            return true;
+    }
+    return false;
+}
+    */
+
+function keyExists(key, buckets)
+{
+    for (let tableID = 0; tableID < NUM_TABLES; tableID++)
+    {
+        if (findKeyInBucket(tableID, buckets[tableID], key) !== -1)
+            return true;
+    }
+    return false;
+}
+
+function tryInsertIntoBucket(tableID, bucketID, key)
+{
+    let slot = findEmptySlot(tableID, bucketID);
+    if (slot === -1)
+        return false;
+
+    hashtable[index(tableID, bucketID, slot)] = key;
+    return true;
+}
+
+function evictFromBucket(tableID, bucketID, key, kickCount)
+{
+    let victimSlot = kickCount % BUCKET_SIZE;
+    let victimIndex = index(tableID, bucketID, victimSlot);
+
+    let displaced = hashtable[victimIndex];
+    hashtable[victimIndex] = key;
+
+    return displaced;
+}
+
 
 /*
     Place a key using bucketed cuckoo hashing.
 
     key     : key to insert
     tableID : which table we are currently trying
-    cnt     : current number of displacements
+    kickCount     : current number of displacements
     limit   : maximum allowed number of displacements
 
     Idea:
@@ -148,10 +214,32 @@ function findEmptySlot(tableID, bucketID)
     4. If bucket is full, evict one key and recursively reinsert it
        into the next table.
 */
-function place(key, tableID, cnt, limit)
+function place(key, tableID, kickCount, limit)
+{
+    if (kickCount >= limit)
+        return false;
+
+    let buckets = candidateBuckets(key);
+
+    if (keyExists(key, buckets))
+        return true;
+
+    let bucketID = buckets[tableID];
+
+    if (tryInsertIntoBucket(tableID, bucketID, key))
+        return true;
+
+    let displaced = evictFromBucket(tableID, bucketID, key, kickCount);
+
+    return place(displaced, (tableID + 1) % NUM_TABLES, kickCount + 1, limit);
+}
+
+
+/*
+function place(key, tableID, kickCount, limit)
 {
     // Too many displacements => likely cycle / bad configuration
-    if (cnt >= limit)
+    if (kickCount >= limit)
     {
         document.write(key + " unpositioned<br/>");
         document.write("Cycle present or kick limit reached. REHASH.<br/>");
@@ -184,16 +272,16 @@ function place(key, tableID, cnt, limit)
     //
     // Here we use a simple deterministic victim choice:
     // alternate by displacement count.
-    let victimSlot = cnt % BUCKET_SIZE;
+    let victimSlot = kickCount % BUCKET_SIZE;
     let victimIndex = index(tableID, bucketID, victimSlot);
 
     let displaced = hashtable[victimIndex];
     hashtable[victimIndex] = key;
 
     // Reinsert displaced key into the next table
-    place(displaced, (tableID + 1) % NUM_TABLES, cnt + 1, limit);
+    place(displaced, (tableID + 1) % NUM_TABLES, kickCount + 1, limit);
 }
-
+*/
 
 /*
     Lookup a key.
@@ -208,13 +296,15 @@ function place(key, tableID, cnt, limit)
 */
 function lookup(key)
 {
+    const buckets = candidateBuckets(key);
+    
     for (let tableID = 0; tableID < NUM_TABLES; tableID++)
     {
-        let bucketID = hash(tableID + 1, key);
+        const bucketID = buckets[tableID];
 
         for (let slot = 0; slot < BUCKET_SIZE; slot++)
         {
-            let idx = index(tableID, bucketID, slot);
+            const idx = index(tableID, bucketID, slot);
 
             if (hashtable[idx] === key)
             {
@@ -288,16 +378,21 @@ function cuckoo(keys, n)
 
     for (let i = 0; i < n; i++)
     {
-        place(keys[i], 0, 0, Math.max(MAX_KICKS, n));
+        const inserted = place(keys[i], 0, 0, Math.max(MAX_KICKS, n));
+
+        if (!inserted)
+        {
+            document.write("Failed to insert key " + keys[i] + ". Rehash needed.<br/>");
+            break;
+        }
     }
 
     printTable();
 }
 
-
 // Driver program
 
-let keys = [20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
+let keys = [88, 40, 20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
 
 cuckoo(keys, keys.length);
 
