@@ -1,38 +1,61 @@
-// Bucketed cuckoo hashing using ONE flat 1D array.
-//
-// Logical structure:
-// - NUM_TABLES tables
-// - each table has BUCKET_COUNT buckets
-// - each bucket has BUCKET_SIZE slots
-//
-// Physical structure:
-// - one contiguous flat array
-//
-// Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
-//
-// table 0:
-//
-//  |_____|_____|  |_____|_____|  |_____|_____| 
-//  bucket 0       bucket 1       bucket 2
-//  [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
-//
-//
-// table 1:
-//
-//  |_____|_____|  |_____|_____|  |_____|_____| 
-//  bucket 0       bucket 1       bucket 2
-//  [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
-//
-//
-// flat array:
-// first part table 1, second part table 2
-//
-// |------------ table 0 ------------| |------------ table 1 ------------|
-//   id0  id1    id2  id3   id4  id5     id6  id7   id8   id9   id10 id11
-// |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
-//  bucket 0   bucket 1    bucket 2    bucket 3    bucket 4    bucket 5
-//  [ s0  s1 ] [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]
-
+/**
+ * 
+ * Bucketed cuckoo hashing using one single flat array (1D).
+ * 
+ * @author Boris A. Reif
+ * @version 0.0.1
+ * 
+ * Logical structure:
+ * - NUM_TABLES tables
+ * - each table has BUCKET_COUNT buckets
+ * - each bucket has BUCKET_SIZE slots (s)
+ * 
+ * Physical structure:
+ * - one contiguous flat array
+ * 
+ * 
+ * @example
+ * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ * 
+ * Logical structure:
+ * table 0
+ * 
+ * |_____|_____|  |_____|_____|  |_____|_____|
+ * [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
+ *    bucket 0       bucket 1       bucket 2
+ * 
+ * table 1
+ * 
+ * |_____|_____|  |_____|_____|  |_____|_____|
+ * [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
+ *    bucket 0       bucket 1       bucket 2
+ * 
+ * Physical structure
+ * flat array with first part table 1, second part table 2, indexed from 0 to 11
+ * 
+ *  idx0 idx1   idx2 idx3   idx4 idx5   idx6 idx7   idx8 idx9  idx10 idx11
+ * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+ * 
+ * 
+ * Logical and physical structure compared.
+ * The first two lines show the actual physical structure with the indeces.
+ * The bottom lines illsutrate the logical layout.
+ * 
+ *  idx0 idx1   idx2 idx3   idx4 idx5   idx6 idx7   idx8 idx9  idx10 idx11
+ * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+ * 
+ * |------------ table 0 ------------| |------------ table 1 ------------|
+ *   bucket 0    bucket 1   bucket 2     bucket 3    bucket 4    bucket 5
+ *  [ s0  s1 ] [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]
+ * 
+ * 
+ * TABLE_SIZE(6) = BUCKET_COUNT(3) * BUCKET_SIZE(2);
+ * TOTAL_SIZE(12) = NUM_TABLES(2) * TABLE_SIZE(2);
+ * 
+ *
+ * 
+ * 
+ *  */
 
 const NUM_TABLES = 2;                         // num of tables
 const BUCKET_COUNT = 11;                      // num of buckets per table
@@ -43,10 +66,12 @@ const TOTAL_SIZE = NUM_TABLES * TABLE_SIZE;   // total num of cells overall
 //const EMPTY = null;
 const EMPTY = Symbol("EMPTY");                // empty marker
 
-const MAX_KICKS = 20; // maximum number of displacements before we give up
+const MAX_KICKS = 20; // max number of displacements before insertion gives up
 
-// one flat 1D array storing everything contiguously
+// one single flat 1D array storing every table contiguously
 let hashtable = new Array(TOTAL_SIZE).fill(EMPTY); 
+
+
 // TOTAL_SIZE (44) = BUCKET_COUNT(11) * BUCKET_SIZE(2) * NUM_TABLES(2)
 //console.log("Print hashtable: ");
 //hashtable.forEach(function(entry) {
@@ -73,14 +98,104 @@ function index(tableID, bucketID, slotID)
 }
     */
 
-function bucketStart(tableID, bucketID)
+/**
+ * Return the first array index of a bucket
+ * 
+ * @example
+ * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ * 
+ * => TABLE_SIZE = 6
+ * => TOTAL_SIZE = 12 
+ * 
+ * Logical layer
+ * |------------ table 0 ------------| |------------ table 1 ------------|
+ *   bucket 0    bucket 1   bucket 2     bucket 3    bucket 4    bucket 5
+ * 
+ * physcial layer
+ * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+ * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
+ * |           |           |           |           |           |
+ *   0           2           4           6           8           10
+ * 
+ * => Parameter bounds:
+ * tableIdx can be 0 or 1
+ * bucketIdx can be 0,1 or 2
+ * 
+ * bucketStart(0, 0) = 0
+ * bucketStart(0, 1) = 2
+ * bucketStart(0, 2) = 4
+ * 
+ * bucketStart(1, 0) = 6
+ * bucketStart(1, 1) = 8
+ * bucketStart(1, 2) = 10
+ * 
+ * @param {number} tableIdx - table index (logical)
+ * @param {number} bucketIdx - bucket index (logical)
+ * 
+ * @returns {number} idx - starting index of this bucket (physical)
+ * 
+ *  */
+function bucketStart(tableIdx, bucketIdx)
 {
-    return tableID * TABLE_SIZE + bucketID * BUCKET_SIZE;
+    return tableIdx * TABLE_SIZE + bucketIdx * BUCKET_SIZE;
 }
 
-function index(tableID, bucketID, slotID)
+
+/**
+ * Convert logical coordinates (tableIdx, bucketIdx, slotIdx) into
+ * one single flat-array index
+ * 
+ * @example
+ * 
+ * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ * 
+ * => TABLE_SIZE = 6
+ * => TOTAL_SIZE = 12 
+ * 
+ * Logical layer
+ * |------------ table 0 ------------| |------------ table 1 ------------|
+ *   bucket 0    bucket 1   bucket 2     bucket 3    bucket 4    bucket 5
+ *  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ] 
+ * 
+ * physcial layer
+ * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+ * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
+ * |           |           |           |           |           |
+ *   0           2           4           6           8           10
+ * 
+ * bucketStart(0, 0) = 0
+ * bucketStart(0, 1) = 2
+ * bucketStart(0, 2) = 4
+ * 
+ * bucketStart(1, 0) = 6
+ * bucketStart(1, 1) = 8
+ * bucketStart(1, 2) = 10
+ * 
+ * slotIdx can be 0 or 1 in this example
+ * 
+ * index(0, 0, 0) =  0
+ * index(0, 0, 1) =  1
+ * index(0, 1, 0) =  2
+ * index(0, 1, 1) =  3
+ * index(0, 2, 0) =  4
+ * index(0, 2, 1) =  5
+ * 
+ * index(1, 0, 0) =  6
+ * index(1, 0, 1) =  7
+ * index(1, 1, 0) =  8
+ * index(1, 1, 1) =  9
+ * index(1, 2, 0) = 10
+ * index(1, 2, 1) = 11
+ * 
+ * @param {number} tableIdx - table index
+ * @param {number} bucketIdx - bucket index
+ * @param {number} slotIdx - slot index
+ * 
+ * @returns {number} idx - index
+ * */
+function index(tableIdx, bucketIdx, slotIdx)
 {
-    return bucketStart(tableID, bucketID) + slotID;
+    return bucketStart(tableIdx, bucketIdx) + slotIdx;
 }
 
 
@@ -117,11 +232,11 @@ function hash(hash_func, key)
     - slot index if found
     - -1 if not found
 */
-function findKeyInBucket(tableID, bucketID, key)
+function findKeyInBucket(tableIdx, bucketIdx, key)
 {
     for (let slot = 0; slot < BUCKET_SIZE; slot++)
     {
-        let idx = index(tableID, bucketID, slot);
+        let idx = index(tableIdx, bucketIdx, slot);
         if (hashtable[idx] === key)
             return slot;
     }
