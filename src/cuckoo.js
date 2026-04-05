@@ -57,6 +57,7 @@
  * 
  *  */
 
+/*
 const NUM_TABLES = 2;                         // num of tables
 const BUCKET_COUNT = 11;                      // num of buckets per table
 const BUCKET_SIZE = 2;                        // num of slots in each bucket
@@ -67,7 +68,33 @@ const TOTAL_SIZE = NUM_TABLES * TABLE_SIZE;   // total num of cells overall
 const EMPTY = Symbol("EMPTY");                // empty marker
 
 const MAX_KICKS = 20; // max number of displacements before insertion gives up
+*/
 
+const config = {
+    numTables: 2,       // num of tables
+    bucketCount: 11,    // num of buckets per table
+    bucketSize: 2,      // num of slots in each bucket
+    maxKicks: 20,       // max number of displacements before insertion gives up
+    hashFunctions: [
+        function h0(key) {
+            return key % BUCKET_COUNT;
+        },
+        function h1(key) {
+            return Math.floor(key / BUCKET_COUNT) % BUCKET_COUNT;
+        },
+        function h2(key) {
+            return (key * 7 + 3) % BUCKET_COUNT;
+        }
+    ],
+    tableToHash: [0, 1]  // which hash function each table currently uses
+};
+
+// total number of cells  or entries in one table
+const TABLE_SIZE = config.bucketCount * config.bucketSize;
+// total number of cells or entries overall (that is acroos all tables)
+const TOTAL_SIZE = config.numTables * TABLE_SIZE;
+// empty marker
+const EMPTY = Symbol("EMPTY");                
 // one single flat 1D array storing every table contiguously
 let hashtable = new Array(TOTAL_SIZE).fill(EMPTY); 
 
@@ -103,6 +130,9 @@ function index(tableID, bucketID, slotID)
  * 
  * @example
  * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ *  config.numTables: 2,      
+ *  config.bucketCount: 3,  
+ *  config.bucketSize: 2,
  * 
  * => TABLE_SIZE = 6
  * => TOTAL_SIZE = 12 
@@ -137,7 +167,7 @@ function index(tableID, bucketID, slotID)
  *  */
 function bucketStart(tableIdx, bucketIdx)
 {
-    return tableIdx * TABLE_SIZE + bucketIdx * BUCKET_SIZE;
+    return tableIdx * TABLE_SIZE + bucketIdx * config.bucketSize;
 }
 
 
@@ -148,6 +178,9 @@ function bucketStart(tableIdx, bucketIdx)
  * @example
  * 
  * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ *  config.numTables: 2,      
+ *  config.bucketCount: 3,  
+ *  config.bucketSize: 2,
  * 
  * => TABLE_SIZE = 6
  * => TOTAL_SIZE = 12 
@@ -208,21 +241,52 @@ function initTable()
 }
 
 
-/*
-    Hash function.
-    Returns a BUCKET index, not a single slot index.
 
-    So for a key, each hash function chooses one candidate bucket.
-*/
-function hash(hash_func, key)
+function hash(hashIndex, key)
 {
-    switch (hash_func)
-    {
-        case 1: return key % BUCKET_COUNT;
-        case 2: return Math.floor(key / BUCKET_COUNT) % BUCKET_COUNT;
-    }
-    return -1;
+    if (hashIndex < 0 || hashIndex >= HASH_FUNCTIONS.length)
+        throw new Error("Invalid hash index: " + hashIndex);
+
+    return HASH_FUNCTIONS[hashIndex](key);
 }
+
+/*
+ * Return the candidate bucket for the key in each table
+ * 
+ * @example
+ * With NUM_TABLES = 2 the result is:
+ * [ bucketInTable0, bucketInTable1 ]
+ * 
+ * */
+function candidateBuckets(key)
+{
+    return tableToHash.map(function (hashIndex) {
+        return hash(hashIndex, key);
+    });
+}
+
+
+
+
+
+/*
+ * Return the candidate bucket for the key in each table
+ * 
+ * @example
+ * With NUM_TABLES = 2 the result is:
+ * [ bucketInTable0, bucketInTable1 ]
+ * 
+ * @param {any}
+ * 
+ 
+function candidateBuckets(key)
+{
+    return Array.from(
+        { length: NUM_TABLES }, 
+        (_, i) => hash(i + 1, key)
+    );
+}
+    */
 
 
 /*
@@ -262,10 +326,7 @@ function findEmptySlot(tableID, bucketID)
     return -1;
 }
 
-function candidateBuckets(key)
-{
-    return Array.from({ length: NUM_TABLES }, (_, i) => hash(i + 1, key));
-}
+
 
 
 /*
