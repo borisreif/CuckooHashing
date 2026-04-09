@@ -99,6 +99,16 @@ function createConfig({
     // empty marker
     const empty = Symbol("EMPTY"); 
 
+    if (tableToHash.length !== numTables) {
+        throw new Error("tableToHash length must equal numTables");
+    }
+
+    if (bucketCount <= 0 || bucketSize <= 0 || numTables <= 0) {
+        throw new Error(
+            "numTables, bucketCount, and bucketSize must be positive"
+        );
+    }
+
     return {
         numTables,
         bucketCount,
