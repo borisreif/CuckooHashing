@@ -38,21 +38,106 @@
  * 
  * 
  * Logical and physical structure compared:
- * The first two lines show the actual physical structure with the indeces.
- * The bottom lines illsutrate the logical layout.
+ * The first two lines show the actual physical structure with the indices.
+ * The bottom lines illustrate the logical layout.
  * 
  *  idx0 idx1   idx2 idx3   idx4 idx5   idx6 idx7   idx8 idx9  idx10 idx11
  * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
  * 
  * |------------ table 0 ------------| |------------ table 1 ------------|
- *   bucket 0    bucket 1   bucket 2     bucket 3    bucket 4    bucket 5
+ *   bucket 0    bucket 1   bucket 2     bucket 0    bucket 1    bucket 2
  *  [ s0  s1 ] [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]
  * 
  * 
  * TABLE_SIZE(6) = BUCKET_COUNT(3) * BUCKET_SIZE(2);
- * TOTAL_SIZE(12) = NUM_TABLES(2) * TABLE_SIZE(2);
+ * TOTAL_SIZE(12) = NUM_TABLES(2) * TABLE_SIZE(6);
  * 
  *
+ * 
+ * 
+ * Return the first array index of a bucket
+ * 
+ * @example
+ * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ *  config.numTables: 2,      
+ *  config.bucketCount: 3,  
+ *  config.bucketSize: 2,
+ * 
+ * => TABLE_SIZE = 6
+ * => TOTAL_SIZE = 12 
+ * 
+ * Logical layer
+ * |------------ table 0 ------------| |------------ table 1 ------------|
+ *   bucket 0    bucket 1   bucket 2     bucket 0    bucket 1    bucket 2
+ * 
+ * physical layer
+ * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+ * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
+ * |           |           |           |           |           |
+ *   0           2           4           6           8           10
+ * 
+ * => Parameter bounds:
+ * tableIdx can be 0 or 1
+ * bucketIdx can be 0,1 or 2
+ * 
+ * bucketStart(0, 0) = 0
+ * bucketStart(0, 1) = 2
+ * bucketStart(0, 2) = 4
+ * 
+ * bucketStart(1, 0) = 6
+ * bucketStart(1, 1) = 8
+ * bucketStart(1, 2) = 10
+ * 
+ * 
+ * 
+ * Convert logical coordinates (tableIdx, bucketIdx, slotIdx) into
+ * one single flat-array index
+ * 
+ * @example
+ * 
+ * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ *  config.numTables: 2,      
+ *  config.bucketCount: 3,  
+ *  config.bucketSize: 2,
+ * 
+ * => TABLE_SIZE = 6
+ * => TOTAL_SIZE = 12 
+ * 
+ * Logical layer
+ * |------------ table 0 ------------| |------------ table 1 ------------|
+ *   bucket 0    bucket 1   bucket 2     bucket 0    bucket 1    bucket 2
+ *  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ] 
+ * 
+ * physical layer
+ * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
+ * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
+ * |           |           |           |           |           |
+ *   0           2           4           6           8           10
+ * 
+ * bucketStart(0, 0) = 0
+ * bucketStart(0, 1) = 2
+ * bucketStart(0, 2) = 4
+ * 
+ * bucketStart(1, 0) = 6
+ * bucketStart(1, 1) = 8
+ * bucketStart(1, 2) = 10
+ * 
+ * slotIdx can be 0 or 1 in this example
+ * 
+ * index(0, 0, 0) =  0
+ * index(0, 0, 1) =  1
+ * index(0, 1, 0) =  2
+ * index(0, 1, 1) =  3
+ * index(0, 2, 0) =  4
+ * index(0, 2, 1) =  5
+ * 
+ * index(1, 0, 0) =  6
+ * index(1, 0, 1) =  7
+ * index(1, 1, 0) =  8
+ * index(1, 1, 1) =  9
+ * index(1, 2, 0) = 10
+ * index(1, 2, 1) = 11
+ * 
  * 
  * 
  *  */
@@ -62,25 +147,26 @@
  * 
  * @param {number} numTables - the number of logical Tables (e.g.: 2)
  * @param {number} bucketCount - the number of buckets or bins per logical table
- * @param {number} maxKicks - the maximum number of displacments before 
+ * @param {number} maxKicks - the maximum number of displacements before 
  *                            insertion attempts are being stopped
  * @param {number} bucketSize - number of slots or cells in each bucket or bin
- * @param {Object[]} hashFunctions - list or pool of hash functions as an array
- * @param {Object[]} tableToHash - simple array of which hash functions to use
+ * @param {Function[]} hashFunctions - list or pool of hash functions as an array
+ * @param {number[]} tableToHash - simple array of which hash functions to use
  * 
- * @returns {number} numTables - the number of logical Tables (e.g.: 2)
- * @returns {number} bucketCount - number of buckets or bins per logical table
- * @returns {number} maxKicks - the maximum number of displacments before 
- *                            insertion attempts are being stopped
- * @returns {number} bucketSize - number of slots or cells in each bucket or bin
- * @returns {Object[]} hashFunctions - pool of hash functions as an array
- * @returns {Object[]} tableToHash - simple array of which hash functions to use
- * @returns {number} tableSize - total number of cells  or entries in one table
+ * @returns {Object} config - normalized configuration object:
+ *      numTables - the number of logical Tables (e.g.: 2)
+ *      bucketCount - number of buckets or bins per logical table
+ *      maxKicks - the maximum number of displacements before 
+ *                 insertion attempts are being stopped
+ *      bucketSize - number of slots or cells in each bucket or bin
+ *      hashFunctions - pool of hash functions as an array
+ *      tableToHash - simple array of which hash functions to use
+ *      tableSize - total number of cells  or entries in one table
  *                               derived: bucketCount * bucketSize;
- * @returns {number} totalSize - total number of cells or entries overall 
- *                               (that is acroos all tables)
+ *      totalSize - total number of cells or entries overall 
+ *                               (that is across all tables)
  *                               derived: numTables * tableSize
- * @returns {String} empty - the empty marker
+ *      empty - the empty marker
  * 
  * 
  */
@@ -94,10 +180,14 @@ function createConfig({
 }) {
     // total number of cells  or entries in one table
     const tableSize = bucketCount * bucketSize;
-    // total number of cells or entries overall (that is acroos all tables)
+    // total number of cells or entries overall (that is across all tables)
     const totalSize = numTables * tableSize;
     // empty marker
     const empty = Symbol("EMPTY"); 
+
+    if (hashFunctions.length === 0) {
+        throw new Error("hashFunctions must not be empty");
+    }
 
     if (tableToHash.length !== numTables) {
         throw new Error("tableToHash length must equal numTables");
@@ -123,11 +213,11 @@ function createConfig({
 }
 
 /**
- * Create a config object
+ * Create the default configuration
  * 
  * @param {number} numTables - the number of logical Tables (e.g.: 2)
  * @param {number} bucketCount - the number of buckets or bins per logical table
- * @param {number} maxKicks - the maximum number of displacments before 
+ * @param {number} maxKicks - the maximum number of displacements before 
  *                            insertion attempts are being stopped
  * @param {number} bucketSize - number of slots or cells in each bucket or bin
  * @param {Object[]} hashFunctions - list or pool of hash functions as an array
@@ -171,37 +261,6 @@ function createCuckooTable(config) {
 /**
  * Return the first array index of a bucket
  * 
- * @example
- * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
- *  config.numTables: 2,      
- *  config.bucketCount: 3,  
- *  config.bucketSize: 2,
- * 
- * => TABLE_SIZE = 6
- * => TOTAL_SIZE = 12 
- * 
- * Logical layer
- * |------------ table 0 ------------| |------------ table 1 ------------|
- *   bucket 0    bucket 1   bucket 2     bucket 3    bucket 4    bucket 5
- * 
- * physcial layer
- * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
- * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
- * |           |           |           |           |           |
- *   0           2           4           6           8           10
- * 
- * => Parameter bounds:
- * tableIdx can be 0 or 1
- * bucketIdx can be 0,1 or 2
- * 
- * bucketStart(0, 0) = 0
- * bucketStart(0, 1) = 2
- * bucketStart(0, 2) = 4
- * 
- * bucketStart(1, 0) = 6
- * bucketStart(1, 1) = 8
- * bucketStart(1, 2) = 10
- * 
  * @param {Object} table - the cuckoo table created by createCuckooTable(config)
  * @param {number} tableIdx - table index (logical)
  * @param {number} bucketIdx - bucket index (logical)
@@ -219,51 +278,6 @@ function bucketStart(table, tableIdx, bucketIdx)
  * Convert logical coordinates (tableIdx, bucketIdx, slotIdx) into
  * one single flat-array index
  * 
- * @example
- * 
- * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
- *  config.numTables: 2,      
- *  config.bucketCount: 3,  
- *  config.bucketSize: 2,
- * 
- * => TABLE_SIZE = 6
- * => TOTAL_SIZE = 12 
- * 
- * Logical layer
- * |------------ table 0 ------------| |------------ table 1 ------------|
- *   bucket 0    bucket 1   bucket 2     bucket 3    bucket 4    bucket 5
- *  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ] 
- * 
- * physcial layer
- * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
- * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
- * |           |           |           |           |           |
- *   0           2           4           6           8           10
- * 
- * bucketStart(0, 0) = 0
- * bucketStart(0, 1) = 2
- * bucketStart(0, 2) = 4
- * 
- * bucketStart(1, 0) = 6
- * bucketStart(1, 1) = 8
- * bucketStart(1, 2) = 10
- * 
- * slotIdx can be 0 or 1 in this example
- * 
- * index(0, 0, 0) =  0
- * index(0, 0, 1) =  1
- * index(0, 1, 0) =  2
- * index(0, 1, 1) =  3
- * index(0, 2, 0) =  4
- * index(0, 2, 1) =  5
- * 
- * index(1, 0, 0) =  6
- * index(1, 0, 1) =  7
- * index(1, 1, 0) =  8
- * index(1, 1, 1) =  9
- * index(1, 2, 0) = 10
- * index(1, 2, 1) = 11
- * 
  * @param {Object} table - the Cuckoo table created by createCuckooTable(config)
  * @param {number} tableIdx - table index
  * @param {number} bucketIdx - bucket index
@@ -277,9 +291,12 @@ function index(table, tableIdx, bucketIdx, slotIdx)
 }
 
 
-/*
-    Reset whole table to EMPTY.
-*/
+/**
+ * Reset whole table to EMPTY.
+ * 
+ * @param {Object} table - the Cuckoo table created by createCuckooTable(config)
+ * 
+ * */
 function initTable(table)
 {
     table.cells.fill(table.config.empty);
@@ -299,14 +316,12 @@ function hash(table, hashIndex, key)
  * 
  * [ bucketInTable0, bucketInTable1 ]
  * 
- * @param {Object} config - the configuration object containing all 
- *                          the configuration parameters
+ * @param {Object} table - the Cuckoo table created by createCuckooTable(config)
  * @param {number} key - the hash key
  * 
- * @returns {Object[]} cadidateBuckets - array of candidate buckets
+ * @returns {Object[]} candidateBuckets - array of candidate buckets
  * 
  * */
-
 function candidateBuckets(table, key) {
     return table.config.tableToHash.map((hashIndex) => hash(table, hashIndex, key));
 }
@@ -318,13 +333,16 @@ function candidateBuckets(table, key)
     });
 }
 */
-/*
-    Search for a key inside one specific bucket.
-
-    Return:
-    - slot index if found
-    - -1 if not found
-*/
+/**
+ * Search for a key inside one specific bucket.
+ * 
+ * @param {Object} table - the Cuckoo table
+ * @param {number} tableIdx - Which of the conceptually different tables
+ * @param {number} bucketIdx - which bucket
+ * @param {number} key - the hash key
+ * 
+ * @returns {number} slot - slot index if found else -1
+ * */
 function findKeyInBucket(table, tableIdx, bucketIdx, key)
 {
     for (let slot = 0; slot < table.config.bucketSize; slot++)
@@ -336,14 +354,15 @@ function findKeyInBucket(table, tableIdx, bucketIdx, key)
     return -1;
 }
 
-
-/*
-    Search for an empty slot inside one specific bucket.
-
-    Return:
-    - slot index if found
-    - -1 if bucket is full
-*/
+/**
+ * Search for an empty slot inside one specific bucket.
+ * 
+ * @param {Object} table - the Cuckoo table
+ * @param {number} tableIdx - Which of the conceptually different tables
+ * @param {number} bucketIdx - which bucket
+ * 
+ * @returns {number} slot - slot index if found else -1 (bucket is full)
+ * */
 function findEmptySlot(table, tableIdx, bucketIdx)
 {
     for (let slot = 0; slot < table.config.bucketSize; slot++)
@@ -358,20 +377,15 @@ function findEmptySlot(table, tableIdx, bucketIdx)
 
 
 
-/*
-function contains(key)
-{
-    let buckets = candidateBuckets(key);
-
-    for (let tableID = 0; tableID < NUM_TABLES; tableID++)
-    {
-        if (findKeyInBucket(tableID, buckets[tableID], key) !== -1)
-            return true;
-    }
-    return false;
-}
-    */
-
+/**
+ * Does the key exist already?
+ * 
+ * @param {Object} table - the Cuckoo table
+ * @param {number} key - hash key
+ * @param {Object[]} buckets - array of buckets
+ * 
+ * @returns {Boolean} return true if key exists
+ * */
 function keyExists(table, key, buckets)
 {
     for (let tableIdx = 0; tableIdx < table.config.numTables; tableIdx++)
@@ -382,15 +396,27 @@ function keyExists(table, key, buckets)
     return false;
 }
 
+
+/**
+ * Insertion
+ * 
+ * @param {Object} table - the Cuckoo table
+ * @param {number} tableIdx - table index
+ * @param {number} bucketIdx - bucket index
+ * @param {number} key - hash key
+ * 
+ * @returns {Boolean} return true if successful else false
+ * */
 function tryInsertIntoBucket(table, tableIdx, bucketIdx, key)
 {
-    let slot = findEmptySlot(table, tableIdx, bucketIdx);
-    if (slot === -1)
+    let slotIdx = findEmptySlot(table, tableIdx, bucketIdx);
+    if (slotIdx === -1)
         return false;
 
-    table.cells[index(table, tableIdx, bucketIdx, slot)] = key;
+    table.cells[index(table, tableIdx, bucketIdx, slotIdx)] = key;
     return true;
 }
+
 
 function evictFromBucket(table, tableIdx, bucketIdx, key, kickCount)
 {
@@ -424,12 +450,12 @@ function place(table, key, tableIdx, kickCount, limit)
     if (kickCount >= limit)
         return false;
 
-    let buckets = candidateBuckets(table, key);
+    const buckets = candidateBuckets(table, key);
 
     if (keyExists(table, key, buckets))
         return true;
 
-    let bucketIdx = buckets[tableIdx];
+    const bucketIdx = buckets[tableIdx];
 
     if (tryInsertIntoBucket(table, tableIdx, bucketIdx, key))
         return true;
@@ -463,21 +489,21 @@ function lookup(table, key)
 {
     const buckets = candidateBuckets(table, key);
     
-    for (let tableID = 0; tableID < table.config.numTables; tableID++)
+    for (let tableIdx = 0; tableIdx < table.config.numTables; tableIdx++)
     {
-        const bucketID = buckets[tableID];
+        const bucketIdx = buckets[tableIdx];
 
-        for (let slot = 0; slot < table.config.bucketSize; slot++)
+        for (let slotIdx = 0; slotIdx < table.config.bucketSize; slotIdx++)
         {
-            const idx = index(table, tableID, bucketID, slot);
+            const idx = index(table, tableIdx, bucketIdx, slotIdx);
 
             if (table.cells[idx] === key)
             {
                 return {
                     found: true,
-                    table: tableID,
-                    bucket: bucketID,
-                    slot: slot,
+                    tableIdx: tableIdx,
+                    bucketIdx: bucketIdx,
+                    slotIdx: slotIdx,
                     flatIndex: idx
                 };
             }
@@ -496,18 +522,18 @@ function printTable(table)
 {
     document.write("Final bucketed cuckoo tables:<br/><br/>");
 
-    for (let tableID = 0; tableID < table.config.numTables; tableID++)
+    for (let tableIdx = 0; tableIdx < table.config.numTables; tableIdx++)
     {
-        document.write("Table " + tableID + ":<br/>");
+        document.write("Table " + tableIdx + ":<br/>");
 
-        for (let bucketID = 0; bucketID < table.config.bucketCount; bucketID++)
+        for (let bucketIdx = 0; bucketIdx < table.config.bucketCount; bucketIdx++)
         {
-            document.write("Bucket " + bucketID + ": [ ");
+            document.write("Bucket " + bucketIdx + ": [ ");
 
-            for (let slot = 0; slot < table.config.bucketSize; slot++)
+            for (let slotIdx = 0; slotIdx < table.config.bucketSize; slotIdx++)
             {
-                let idx = index(table, tableID, bucketID, slot);
-                let value = table.cells[idx];
+                const idx = index(table, tableIdx, bucketIdx, slotIdx);
+                const value = table.cells[idx];
 
                 if (value === table.config.empty)
                     document.write("- ");
@@ -537,13 +563,13 @@ function printTable(table)
 /*
     Insert all keys into the cuckoo table.
 */
-function cuckoo(table, keys, n)
+function cuckoo(table, keys)
 {
     initTable(table);
 
-    for (let i = 0; i < n; i++)
+    for (let i = 0; i < keys.length; i++)
     {
-        const inserted = place(table, keys[i], 0, 0, Math.max(table.config.maxKicks, n));
+        const inserted = place(table, keys[i], 0, 0, Math.max(table.config.maxKicks, keys.length));
 
         if (!inserted)
         {
@@ -559,7 +585,7 @@ function cuckoo(table, keys, n)
 const table = createCuckooTable(config);
 let keys = [88, 40, 20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
 
-cuckoo(table, keys, keys.length);
+cuckoo(table, keys);
 lookup(table, 67);
 printTable(table);
 
