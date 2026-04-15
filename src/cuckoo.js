@@ -1,21 +1,19 @@
 /**
  * 
- * Bucketed cuckoo hashing using one single flat array (1D).
+ * Bucketed cuckoo hashing using one flat 1D array.
  * 
  * @author Boris A. Reif
- * @version 0.0.1
+ * @version 0.0.2
  * 
- * Logical structure:
- * - NUM_TABLES tables
- * - each table has BUCKET_COUNT buckets
- * - each bucket has BUCKET_SIZE slots (s)
+ * Logical model:
+ * - numTables - logical tables
+ * - each table has bucketCount buckets
+ * - each bucket has bucketSize slots (s)
  * 
- * Physical structure:
- * - one contiguous flat array
+ * Physical model:
+ * - one contiguous flat array called 'cells'
  * 
- * 
- * @example
- * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
+ * Example layout when numTables = 2, bucketCount = 3, bucketSize = 2:
  * 
  * Logical structure:
  * table 0
@@ -30,7 +28,7 @@
  * [slot0 slot1]  [slot0 slot1]  [slot0 slot1]
  *    bucket 0       bucket 1       bucket 2
  * 
- * Physical structure
+ * Physical structure, flat array
  * flat array with first part table 1, second part table 2, indexed from 0 to 11
  * 
  *  idx0 idx1   idx2 idx3   idx4 idx5   idx6 idx7   idx8 idx9  idx10 idx11
@@ -49,22 +47,10 @@
  *  [ s0  s1 ] [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]  [ s0  s1 ]
  * 
  * 
- * TABLE_SIZE(6) = BUCKET_COUNT(3) * BUCKET_SIZE(2);
- * TOTAL_SIZE(12) = NUM_TABLES(2) * TABLE_SIZE(6);
- * 
- *
- * 
+ * tableSize = bucketCount * bucketSize = 3 * 2 = 6;
+ * totalSize = numTables * tableSize = 2 * 6 = 12;
  * 
  * Return the first array index of a bucket
- * 
- * @example
- * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
- *  config.numTables: 2,      
- *  config.bucketCount: 3,  
- *  config.bucketSize: 2,
- * 
- * => TABLE_SIZE = 6
- * => TOTAL_SIZE = 12 
  * 
  * Logical layer
  * |------------ table 0 ------------| |------------ table 1 ------------|
@@ -93,16 +79,6 @@
  * Convert logical coordinates (tableIdx, bucketIdx, slotIdx) into
  * one single flat-array index
  * 
- * @example
- * 
- * Example layout when NUM_TABLES = 2, BUCKET_COUNT = 3, BUCKET_SIZE = 2:
- *  config.numTables: 2,      
- *  config.bucketCount: 3,  
- *  config.bucketSize: 2,
- * 
- * => TABLE_SIZE = 6
- * => TOTAL_SIZE = 12 
- * 
  * Logical layer
  * |------------ table 0 ------------| |------------ table 1 ------------|
  *   bucket 0    bucket 1   bucket 2     bucket 0    bucket 1    bucket 2
@@ -110,18 +86,8 @@
  * 
  * physical layer
  * |____|____| |____|____| |____|____| |____|____| |____|____| |____|____|
- * |idx0 idx1  |idx2 idx3  |idx4 idx5  |idx6 idx7  |idx8 idx9  |idx10 idx11
- * |           |           |           |           |           |
- *   0           2           4           6           8           10
- * 
- * bucketStart(0, 0) = 0
- * bucketStart(0, 1) = 2
- * bucketStart(0, 2) = 4
- * 
- * bucketStart(1, 0) = 6
- * bucketStart(1, 1) = 8
- * bucketStart(1, 2) = 10
- * 
+ *  idx0 idx1   idx2 idx3   idx4 idx5   idx6 idx7   idx8 idx9   idx10 idx11
+ *
  * slotIdx can be 0 or 1 in this example
  * 
  * index(0, 0, 0) =  0
