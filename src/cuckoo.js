@@ -109,61 +109,81 @@
  *  */
 
 /**
- * Create a config object
+ * Build and validate the normalized configuration object.
  * 
- * @param {number} numTables - the number of logical Tables (e.g.: 2)
- * @param {number} bucketCount - the number of buckets or bins per logical table
- * @param {number} maxKicks - the maximum number of displacements before 
- *                            insertion attempts are being stopped
- * @param {number} bucketSize - number of slots or cells in each bucket or bin
- * @param {Function[]} hashFunctions - list or pool of hash functions as an array
- * @param {number[]} tableToHash - simple array of which hash functions to use
- * 
- * @returns {Object} config - normalized configuration object:
- *      numTables - the number of logical Tables (e.g.: 2)
- *      bucketCount - number of buckets or bins per logical table
- *      maxKicks - the maximum number of displacements before 
- *                 insertion attempts are being stopped
- *      bucketSize - number of slots or cells in each bucket or bin
- *      hashFunctions - pool of hash functions as an array
- *      tableToHash - simple array of which hash functions to use
+ * @param {Object} options
+ * @param {number} options.numTables - the number of logical Tables (e.g.: 2)
+ * @param {number} options.bucketCount - num of buckets/bins per logical table
+ * @param {number} options.bucketSize - num of slots/cells in each bucket/bin
+ * @param {number} options.maxKicks - the maximum number of displacements before 
+ *                                    insertion attempts are being stopped
+ * @param {Function[]} options.hashFunctions  - list or pool of hash 
+ *                                              functions as an array
+ * @param {number[]} options.tableToHash - simple array of which hash 
+ *                                         functions to use
+ * @param {boolean} [options.debug=false] - Enable debug logging.
+ * @param {Function} [options.logger=console.log] - Logging function.
+ * @returns {Object} Normalized configuration object.
  *      tableSize - total number of cells  or entries in one table
  *                               derived: bucketCount * bucketSize;
  *      totalSize - total number of cells or entries overall 
  *                               (that is across all tables)
  *                               derived: numTables * tableSize
  *      empty - the empty marker
+ *      debug - debug mode on or off
+ *      logger
  * 
  * 
  */
 function createConfig({
-    numTables,      // num of tables
-    bucketCount,    // num of buckets per table
-    bucketSize,     // num of slots in each bucket
-    maxKicks,       // max number of displacements before insertion gives up
+    numTables,
+    bucketCount,
+    bucketSize,
+    maxKicks,
     hashFunctions,
-    tableToHash
+    tableToHash,
+    debug = false,
+    logger = console.log
 }) {
-    // total number of cells  or entries in one table
-    const tableSize = bucketCount * bucketSize;
-    // total number of cells or entries overall (that is across all tables)
-    const totalSize = numTables * tableSize;
-    // empty marker
-    const empty = Symbol("EMPTY"); 
-
-    if (hashFunctions.length === 0) {
-        throw new Error("hashFunctions must not be empty");
+    if (!Number.isInteger(numTables) || numTables <= 0) {
+        throw new Error("numTables must be a positive integer");
     }
 
-    if (tableToHash.length !== numTables) {
+    if (!Number.isInteger(bucketCount) || bucketCount <= 0) {
+        throw new Error("bucketCount must be a positive integer");
+    }
+
+    if (!Number.isInteger(bucketSize) || bucketSize <= 0) {
+        throw new Error("bucketSize must be a positive integer");
+    }
+
+    if (!Number.isInteger(maxKicks) || maxKicks <= 0) {
+        throw new Error("maxKicks must be a positive integer");
+    }
+
+    if (!Array.isArray(hashFunctions) || hashFunctions.length === 0) {
+        throw new Error("hashFunctions must be a non-empty array");
+    }
+
+    if (!Array.isArray(tableToHash) || tableToHash.length !== numTables) {
         throw new Error("tableToHash length must equal numTables");
     }
 
-    if (bucketCount <= 0 || bucketSize <= 0 || numTables <= 0) {
-        throw new Error(
-            "numTables, bucketCount, and bucketSize must be positive"
-        );
+    for (const fn of hashFunctions) {
+        if (typeof fn !== "function") {
+            throw new Error("Every entry in hashFunctions must be a function");
+        }
     }
+
+    for (const hashIndex of tableToHash) {
+        if (!Number.isInteger(hashIndex) || hashIndex < 0 || hashIndex >= hashFunctions.length) {
+            throw new Error("tableToHash contains an invalid hash-function index");
+        }
+    }
+
+    const tableSize = bucketCount * bucketSize;
+    const totalSize = numTables * tableSize;
+    const empty = Symbol("EMPTY");
 
     return {
         numTables,
@@ -174,9 +194,12 @@ function createConfig({
         tableToHash,
         tableSize,
         totalSize,
-        empty
+        empty,
+        debug,
+        logger
     };
 }
+
 
 /**
  * Create the default configuration
