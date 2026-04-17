@@ -707,6 +707,77 @@ const config = createConfig({
     tableToHash: [0, 1]
 });
 
+
+function tableSnapshot(table) {
+    const cfg = table.config;
+    const logical = [];
+
+    for (let tableIdx = 0; tableIdx < cfg.numTables; tableIdx++) {
+        const buckets = [];
+
+        for (let bucketIdx = 0; bucketIdx < cfg.bucketCount; bucketIdx++) {
+            const slots = [];
+
+            for (let slotIdx = 0; slotIdx < cfg.bucketSize; slotIdx++) {
+                const idx = index(table, tableIdx, bucketIdx, slotIdx);
+                const value = table.cells[idx];
+                slots.push(value === cfg.empty ? null : value);
+            }
+
+            buckets.push(slots);
+        }
+
+        logical.push(buckets);
+    }
+
+    return {
+        logical,
+        flat: table.cells.map((value) =>
+            value === cfg.empty ? null : value
+        )
+    };
+}
+
+
+function renderTable(table) {
+    const snapshot = tableSnapshot(table);
+    const lines = [];
+
+    lines.push("Final bucketed cuckoo tables:");
+    lines.push("");
+
+    snapshot.logical.forEach((buckets, tableIdx) => {
+        lines.push(`Table ${tableIdx}:`);
+
+        buckets.forEach((slots, bucketIdx) => {
+            const shown = slots.map((x) => x === null ? "-" : String(x));
+            lines.push(`  Bucket ${bucketIdx}: [ ${shown.join(" ")} ]`);
+        });
+
+        lines.push("");
+    });
+
+    lines.push("Underlying flat 1D array:");
+    lines.push(snapshot.flat.map((x) => x === null ? "-" : String(x)).join(" "));
+
+    return lines.join("\n");
+}
+
+function renderFlatArray(table) {
+    const cfg = table.config;
+    return table.cells
+        .map((value) => value === cfg.empty ? "-" : String(value))
+        .join(" ");
+}
+
+function printTable(table) {
+    const text = renderTable(table);
+    table.config.logger(text);
+}
+
+
+
+
 /**
  * Small demo.
  */
