@@ -108,6 +108,25 @@
  * 
  *  */
 
+
+
+
+
+/**
+ * Print a debug message only when debug mode is enabled.
+ *
+ * @param {Object} table
+ * @param {...any} args
+ */
+function debugLog(table, ...args) {
+    if (table.config.debug) {
+        table.config.logger(...args);
+    }
+}
+
+
+
+
 /**
  * Build and validate the normalized configuration object.
  * 
@@ -230,12 +249,12 @@ const config = createConfig({
 
 
 /**
- * Create the Cuckoo Hash Table
+ * Create a new cuckoo-table object
  * 
  * one single flat 1D array storing every table contiguously
  * 
- * @param {*} config 
- * @returns {} cuckooTable - returns the cuckoo hash table
+ * @param {Object} config 
+ * @returns {{config: Object, cells: Array}} returns the cuckoo hash table
  */
 function createCuckooTable(config) {
     return {
@@ -248,7 +267,7 @@ function createCuckooTable(config) {
 
 
 /**
- * Return the first array index of a bucket
+ * Return the flat-array index of the first slot of the given bucket.
  * 
  * @param {Object} table - the cuckoo table created by createCuckooTable(config)
  * @param {number} tableIdx - table index (logical)
@@ -259,7 +278,8 @@ function createCuckooTable(config) {
  *  */
 function bucketStart(table, tableIdx, bucketIdx)
 {
-    return tableIdx * table.config.tableSize + bucketIdx * table.config.bucketSize;
+    const cfg = table.config;
+    return tableIdx * cfg.tableSize + bucketIdx * cfg.bucketSize;
 }
 
 
@@ -292,36 +312,38 @@ function initTable(table)
 }
 
 
-
+/**
+ * Evaluate one configured hash function.
+ *
+ * @param {Object} table - the Cuckoo table
+ * @param {number} hashIndex
+ * @param {number} key
+ * @returns {number}
+ */
 function hash(table, hashIndex, key)
 {
-    return table.config.hashFunctions[hashIndex](key, table.config.bucketCount);
+    const cfg = table.config;
+    return cfg.hashFunctions[hashIndex](key, cfg.bucketCount);
 }
 
 /**
- * Return the candidate bucket for the key in each table
+ * Return the candidate bucket for the key in each logical table
  * 
  * @example
  * 
  * [ bucketInTable0, bucketInTable1 ]
  * 
- * @param {Object} table - the Cuckoo table created by createCuckooTable(config)
+ * @param {Object} table - the Cuckoo table created
  * @param {number} key - the hash key
  * 
- * @returns {Object[]} candidateBuckets - array of candidate buckets
+ * @returns {number[]} candidateBuckets - array of candidate buckets
  * 
  * */
 function candidateBuckets(table, key) {
-    return table.config.tableToHash.map((hashIndex) => hash(table, hashIndex, key));
+    const cfg = table.config;
+    return cfg.tableToHash.map((hashIndex) => hash(table, hashIndex, key));
 }
-/*
-function candidateBuckets(table, key)
-{
-    return table.config.tableToHash.map(function (hashIndex) {
-        return hash(table, hashIndex, key);
-    });
-}
-*/
+
 /**
  * Search for a key inside one specific bucket.
  * 
@@ -330,35 +352,37 @@ function candidateBuckets(table, key)
  * @param {number} bucketIdx - which bucket
  * @param {number} key - the hash key
  * 
- * @returns {number} slot - slot index if found else -1
+ * @returns {number} slotIdx - slot index if found else -1
  * */
 function findKeyInBucket(table, tableIdx, bucketIdx, key)
 {
-    for (let slot = 0; slot < table.config.bucketSize; slot++)
+    const cfg = table.config;
+    for (let slotIdx = 0; slotIdx < cfg.bucketSize; slotIdx++)
     {
-        let idx = index(table, tableIdx, bucketIdx, slot);
+        let idx = index(table, tableIdx, bucketIdx, slotIdx);
         if (table.cells[idx] === key)
-            return slot;
+            return slotIdx;
     }
     return -1;
 }
 
 /**
- * Search for an empty slot inside one specific bucket.
+ * Search for an empty slot inside one specific bucket
  * 
  * @param {Object} table - the Cuckoo table
  * @param {number} tableIdx - Which of the conceptually different tables
  * @param {number} bucketIdx - which bucket
  * 
- * @returns {number} slot - slot index if found else -1 (bucket is full)
+ * @returns {number} slotIdx - slot index if found else -1 (bucket is full)
  * */
 function findEmptySlot(table, tableIdx, bucketIdx)
 {
-    for (let slot = 0; slot < table.config.bucketSize; slot++)
+    const cfg = table.config;
+    for (let slotIdx = 0; slotIdx < cfg.bucketSize; slotIdx++)
     {
-        let idx = index(table, tableIdx, bucketIdx, slot);
-        if (table.cells[idx] === table.config.empty)
-            return slot;
+        let idx = index(table, tableIdx, bucketIdx, slotIdx);
+        if (table.cells[idx] === cfg.empty)
+            return slotIdx;
     }
     return -1;
 }
@@ -367,17 +391,18 @@ function findEmptySlot(table, tableIdx, bucketIdx)
 
 
 /**
- * Does the key exist already?
+ * Check whether a key already exists in one of its legal buckets
  * 
  * @param {Object} table - the Cuckoo table
  * @param {number} key - hash key
- * @param {Object[]} buckets - array of buckets
+ * @param {number[]} buckets - array of buckets
  * 
- * @returns {Boolean} return true if key exists
+ * @returns {boolean} return true if key exists
  * */
 function keyExists(table, key, buckets)
 {
-    for (let tableIdx = 0; tableIdx < table.config.numTables; tableIdx++)
+    const cfg = table.config;
+    for (let tableIdx = 0; tableIdx < cfg.numTables; tableIdx++)
     {
         if (findKeyInBucket(table, tableIdx, buckets[tableIdx], key) !== -1)
             return true;
@@ -387,102 +412,153 @@ function keyExists(table, key, buckets)
 
 
 /**
- * Insertion
+ * Insertion: Try to insert a key directly into a bucket
  * 
  * @param {Object} table - the Cuckoo table
  * @param {number} tableIdx - table index
  * @param {number} bucketIdx - bucket index
  * @param {number} key - hash key
  * 
- * @returns {Boolean} return true if successful else false
+ * @returns {boolean} return true if successful else false
  * */
 function tryInsertIntoBucket(table, tableIdx, bucketIdx, key)
 {
-    let slotIdx = findEmptySlot(table, tableIdx, bucketIdx);
+    const slotIdx = findEmptySlot(table, tableIdx, bucketIdx);
+
     if (slotIdx === -1)
         return false;
 
     table.cells[index(table, tableIdx, bucketIdx, slotIdx)] = key;
+
+    debugLog(
+        table,
+        `[insert] key=${key} placed in table=${tableIdx}, 
+        bucket=${bucketIdx}, 
+        slot=${slotIdx}`
+    );
+
     return true;
 }
 
-
+/**
+ * Evict one resident key from a full bucket and place the new key there
+ *
+ * @param {Object} table - the Cuckoo table
+ * @param {number} tableIdx - table index
+ * @param {number} bucketIdx - bucket index
+ * @param {number} key - hash key
+ * @param {number} kickCount
+ * @returns {number} displaced
+ */
 function evictFromBucket(table, tableIdx, bucketIdx, key, kickCount)
 {
-    let victimSlot = kickCount % table.config.bucketSize;
-    let victimIndex = index(table, tableIdx, bucketIdx, victimSlot);
+    const cfg = table.config;
+    let victimSlotIdx = kickCount % cfg.bucketSize;
+    let victimIndex = index(table, tableIdx, bucketIdx, victimSlotIdx);
 
     let displaced = table.cells[victimIndex];
     table.cells[victimIndex] = key;
+
+    debugLog(
+        table,
+        `[evict] key=${key} placed in table=${tableIdx}, 
+        bucket=${bucketIdx}, 
+        slot=${victimSlotIdx}; 
+        displaced=${displaced}`
+    );
 
     return displaced;
 }
 
 
-/*
-    Place a key using bucketed cuckoo hashing.
-
-    key     : key to insert
-    tableID : which table we are currently trying
-    kickCount     : current number of displacements
-    limit   : maximum allowed number of displacements
-
-    Idea:
-    1. Compute the candidate bucket in each table.
-    2. If key already exists, stop.
-    3. Try to place key in a free slot in the chosen bucket.
-    4. If bucket is full, evict one key and recursively reinsert it
-       into the next table.
-*/
+/**
+ * Place a key using bucketed cuckoo hashing.
+ *
+ *   Idea:
+ *   1. Compute the candidate bucket in each table.
+ *   2. If key already exists, stop.
+ *   3. Try to place key in a free slot in the chosen bucket.
+ *   4. If bucket is full, evict one key and recursively reinsert it
+ *      into the next table.
+ * @param {Object} table - the hash table
+ * @param {number} key - hash key to insert
+ * @param {number} tableIdx - table index
+ * @param {number} kickCount - current number of displacements
+ * @param {number} limit - maximum allowed number of displacements
+ * @returns {boolean}
+ * 
+ * */
 function place(table, key, tableIdx, kickCount, limit)
 {
-    if (kickCount >= limit)
-        return false;
+    const cfg = table.config;
+
+    if (kickCount >= limit) {
+        debugLog(table, `[fail] kick limit reached while inserting key=${key}`);
+        return false;   
+    }
 
     const buckets = candidateBuckets(table, key);
 
-    if (keyExists(table, key, buckets))
+    debugLog(
+        table,
+        `[place] key=${key}, 
+        candidates=${JSON.stringify(buckets)}, 
+        currentTable=${tableIdx}, 
+        kickCount=${kickCount}`
+    );
+
+    if (keyExists(table, key, buckets)) {
+        debugLog(table, `[skip] key=${key} already exists`);
         return true;
+    }
 
     const bucketIdx = buckets[tableIdx];
 
-    if (tryInsertIntoBucket(table, tableIdx, bucketIdx, key))
+    if (tryInsertIntoBucket(table, tableIdx, bucketIdx, key)) {
         return true;
+    }
 
-    let displaced = evictFromBucket(table, tableIdx, bucketIdx, key, kickCount);
+    const displaced = evictFromBucket(table, 
+                                      tableIdx, 
+                                      bucketIdx, 
+                                      key, 
+                                      kickCount);
 
     return place(
         table,
         displaced,
-        (tableIdx + 1) % table.config.numTables,
+        (tableIdx + 1) % cfg.numTables,
         kickCount + 1,
         limit
     );
 }
 
 
-
-
-/*
-    Lookup a key.
-
-    A key may live in:
-    - any slot of its bucket in table 0
-    - any slot of its bucket in table 1
-
-    So we:
-    1. compute the candidate bucket in each table
-    2. scan all slots in those buckets
-*/
+/**
+ * Look up a key
+ * 
+ * A key may live in:
+ * - any slot of its bucket in table 0
+ * - any slot of its bucket in table 1
+ * So we:
+ * 1. compute the candidate bucket in each table
+ * 2. scan all slots in those buckets
+ *
+ * @param {Object} table
+ * @param {number} key
+ * @returns {Object}
+ *
+ * */
 function lookup(table, key)
 {
+    const cfg = table.config;
     const buckets = candidateBuckets(table, key);
     
-    for (let tableIdx = 0; tableIdx < table.config.numTables; tableIdx++)
+    for (let tableIdx = 0; tableIdx < cfg.numTables; tableIdx++)
     {
         const bucketIdx = buckets[tableIdx];
 
-        for (let slotIdx = 0; slotIdx < table.config.bucketSize; slotIdx++)
+        for (let slotIdx = 0; slotIdx < cfg.bucketSize; slotIdx++)
         {
             const idx = index(table, tableIdx, bucketIdx, slotIdx);
 
@@ -506,7 +582,7 @@ function lookup(table, key)
 /*
     Print table in logical form:
     table -> bucket -> slot
-*/
+
 function printTable(table)
 {
     document.write("Final bucketed cuckoo tables:<br/><br/>");
@@ -547,22 +623,65 @@ function printTable(table)
     }
     document.write("<br/><br/>");
 }
+    */
 
 
-/*
-    Insert all keys into the cuckoo table.
-*/
-function cuckoo(table, keys)
-{
+/**
+ * Print the table in a console-friendly form.
+ *
+ * @param {Object} table
+ */
+function printTable(table) {
+    const cfg = table.config;
+
+    out(table, "Final bucketed cuckoo tables:\n");
+
+    for (let tableIdx = 0; tableIdx < cfg.numTables; tableIdx++) {
+        out(table, `Table ${tableIdx}:`);
+
+        for (let bucketIdx = 0; bucketIdx < cfg.bucketCount; bucketIdx++) {
+            const values = [];
+
+            for (let slotIdx = 0; slotIdx < cfg.bucketSize; slotIdx++) {
+                const idx = index(table, tableIdx, bucketIdx, slotIdx);
+                const value = table.cells[idx];
+                values.push(value === cfg.empty ? "-" : String(value));
+            }
+
+            out(table, `  Bucket ${bucketIdx}: [ ${values.join(" ")} ]`);
+        }
+
+        out(table, "");
+    }
+
+    const flat = table.cells.map((value) => (value === cfg.empty ? "-" : String(value)));
+    out(table, "Underlying flat 1D array:");
+    out(table, flat.join(" "));
+    out(table, "");
+}
+
+/**
+ * Insert all keys from the input array into the cuckoo table.
+ *
+ * @param {Object} table
+ * @param {number[]} keys
+ */
+function cuckoo(table, keys) {
+    const cfg = table.config;
+
     initTable(table);
 
-    for (let i = 0; i < keys.length; i++)
-    {
-        const inserted = place(table, keys[i], 0, 0, Math.max(table.config.maxKicks, keys.length));
+    for (let i = 0; i < keys.length; i++) {
+        const inserted = place(
+            table,
+            keys[i],
+            0,
+            0,
+            Math.max(cfg.maxKicks, keys.length)
+        );
 
-        if (!inserted)
-        {
-            document.write("Failed to insert key " + keys[i] + ". Rehash needed.<br/>");
+        if (!inserted) {
+            out(table, `Failed to insert key ${keys[i]}. Rehash needed.`);
             break;
         }
     }
@@ -570,14 +689,30 @@ function cuckoo(table, keys)
     printTable(table);
 }
 
-// Driver program
+/**
+ * Example configuration.
+ */
+const config = createConfig({
+    numTables: 2,
+    bucketCount: 11,
+    bucketSize: 2,
+    maxKicks: 20,
+    debug: true,          // set to false to silence debug logs
+    logger: console.log,  // replace with another logger if needed
+    hashFunctions: [
+        (key, bucketCount) => key % bucketCount,
+        (key, bucketCount) => Math.floor(key / bucketCount) % bucketCount,
+        (key, bucketCount) => (key * 7 + 3) % bucketCount
+    ],
+    tableToHash: [0, 1]
+});
+
+/**
+ * Small demo.
+ */
 const table = createCuckooTable(config);
-let keys = [88, 40, 20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
+const keys = [88, 40, 20, 50, 53, 75, 100, 67, 105, 3, 36, 39, 6];
 
 cuckoo(table, keys);
-lookup(table, 67);
-printTable(table);
-
-document.write("Lookup 67: " + JSON.stringify(lookup(table, 67)) + "<br/>");
-document.write("Lookup 999: " + JSON.stringify(lookup(table, 999)) + "<br/>");
-
+console.log("Lookup 67:", lookup(table, 67));
+console.log("Lookup 999:", lookup(table, 999));
