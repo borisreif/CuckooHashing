@@ -691,7 +691,7 @@ function cuckoo(table, keys) {
 
 /**
  * Example configuration.
- */
+ 
 const config = createConfig({
     numTables: 2,
     bucketCount: 11,
@@ -706,7 +706,7 @@ const config = createConfig({
     ],
     tableToHash: [0, 1]
 });
-
+*/
 
 function tableSnapshot(table) {
     const cfg = table.config;
