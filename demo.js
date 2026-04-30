@@ -17,7 +17,7 @@ const map = createResizableMap({
         logger: console.log
     },
     growthFactor: 2,
-    maxLoadFactor: 0.8
+    maxLoadFactor: null
 });
 
 map.set(88, "alpha");
@@ -34,9 +34,11 @@ console.log("size():", map.size());
 console.log("loadFactor():", map.loadFactor());
 console.log("config:", map.getConfig());
 
+console.log(map.entries());
 map.print();
 
 map.delete(40);
 console.log("after delete(40):", map.get(40));
 
+console.log(map.entries());
 map.print();

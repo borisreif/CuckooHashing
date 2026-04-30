@@ -466,6 +466,27 @@ export function createBucketedCuckooMap({
     }
 
     /**
+     * Return all live entries in the map as a flat array.
+     *
+     * This is mainly useful for rebuilding the table during resize/rehash.
+     *
+     * @returns {{key:any,value:any}[]}
+     */
+    function entries() {
+        const out = [];
+        
+        for (const slot of cells) {
+            if (slot !== EMPTY) {
+                out.push({
+                    key: slot.key,
+                    value: slot.value
+                });
+            }
+        }
+        return out;
+    }
+
+    /**
      * Render the whole table into a human-readable multiline string.
      *
      * @returns {string}
@@ -668,6 +689,7 @@ export function createBucketedCuckooMap({
         size,
         loadFactor,
         snapshot,
+        entries,
         render,
         print,
         locate,
