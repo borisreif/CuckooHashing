@@ -1,3 +1,5 @@
+import { mix32, readUint32LE } from "../utils/hash32.js";
+
 /**
  * Key strategy backed by an external digest function.
  *
@@ -13,38 +15,6 @@
  */
 
 /**
- * Read one uint32 value from bytes in little-endian order.
- *
- * @param {Uint8Array} bytes
- * @param {number} offset
- * @returns {number}
- */
-function readUint32LE(bytes, offset) {
-    return (
-        (bytes[offset]) |
-        (bytes[offset + 1] << 8) |
-        (bytes[offset + 2] << 16) |
-        (bytes[offset + 3] << 24)
-    ) >>> 0;
-}
-
-/**
- * Mix a 32-bit unsigned integer so nearby inputs spread out better.
- *
- * @param {number} x
- * @returns {number}
- */
-function mix32(x) {
-    x = x >>> 0;
-    x ^= x >>> 16;
-    x = Math.imul(x, 0x7feb352d);
-    x ^= x >>> 15;
-    x = Math.imul(x, 0x846ca68b);
-    x ^= x >>> 16;
-    return x >>> 0;
-}
-
-/**
  * Create a digest-based key strategy.
  *
  * Required callbacks:
@@ -53,7 +23,7 @@ function mix32(x) {
  *
  * Equality:
  * - by default uses Object.is
- * - you may override it if you want value-based semantics
+ * - you may override it if you want different semantics
  *
  * @param {Object} options
  * @param {(key:any) => Uint8Array} options.encodeKey
@@ -80,8 +50,8 @@ export function createDigestKeyOps({
         /**
          * Derive one bucket index from the digest output.
          *
-         * We read several 32-bit words from the digest and then derive the
-         * `which`-th hash from them.
+         * We read two 32-bit words from the digest and derive the `which`-th
+         * hash from them.
          *
          * @param {*} key
          * @param {number} which
@@ -103,7 +73,6 @@ export function createDigestKeyOps({
             const h1 = readUint32LE(digest, 0);
             const h2 = readUint32LE(digest, 4);
 
-            // Derive multiple hash functions from the digest.
             const h = which === 0
                 ? h1
                 : mix32(h2 ^ Math.imul(which + 1, 0x9e3779b9));

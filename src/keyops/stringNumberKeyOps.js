@@ -1,58 +1,26 @@
+import { mix32, hashString32 } from "../utils/hash32.js";
+
 /**
- * Key strategy for:
- * - numbers
- * - strings
+ * Key strategy for numbers and strings.
  *
  * Semantics:
  * - numbers compare by JS value using Object.is
  * - strings compare by JS value
+ * - no arbitrary objects are accepted
  *
- * This strategy does not support arbitrary objects.
+ * This strategy is a good fit for a traditional dictionary-like use case where
+ * keys are primitive values and hashing should stay synchronous and fast.
  */
 
 /**
- * Mix a 32-bit unsigned integer so nearby inputs spread out better.
- *
- * @param {number} x
- * @returns {number}
- */
-function mix32(x) {
-    x = x >>> 0;
-    x ^= x >>> 16;
-    x = Math.imul(x, 0x7feb352d);
-    x ^= x >>> 15;
-    x = Math.imul(x, 0x846ca68b);
-    x ^= x >>> 16;
-    return x >>> 0;
-}
-
-/**
- * Hash a string into a 32-bit unsigned integer.
- * This is a simple FNV-1a style hash.
- *
- * @param {string} str
- * @returns {number}
- */
-function hashString(str) {
-    let h = 2166136261 >>> 0;
-
-    for (let i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-    }
-
-    return h >>> 0;
-}
-
-/**
- * Convert a supported key into one 32-bit base hash.
+ * Convert a supported primitive key into one 32-bit base hash.
  *
  * @param {number|string} key
  * @returns {number}
  */
 function baseHash(key) {
     if (typeof key === "string") {
-        return hashString(key);
+        return hashString32(key);
     }
 
     if (typeof key === "number") {
@@ -60,7 +28,9 @@ function baseHash(key) {
             throw new TypeError("Number keys must be finite");
         }
 
-        return hashString(String(key));
+        // Hash the string form so integers, negatives, and decimals are all
+        // handled consistently.
+        return hashString32(String(key));
     }
 
     throw new TypeError(
@@ -71,10 +41,13 @@ function baseHash(key) {
 /**
  * Create a key strategy for numbers and strings.
  *
+ * The cuckoo engine asks this strategy for one bucket index per logical table.
+ * We derive multiple hash functions from one base hash by mixing with different
+ * seeds.
+ *
  * @returns {{hashBucket: Function, equals: Function, formatKey: Function}}
  */
 export function createStringNumberKeyOps() {
-    // Seeds used to derive multiple hash functions.
     const seeds = [
         0x00000000,
         0x9e3779b9,
@@ -111,7 +84,7 @@ export function createStringNumberKeyOps() {
         },
 
         /**
-         * Convert a key to a printable string.
+         * Convert a key to a printable string for debug output.
          *
          * @param {*} key
          * @returns {string}

@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "description": "Bucketed cuckoo hash map implementation in JavaScript.",
   "type": "module",
-  "main": "./src/cuckoo.js",
-  "exports": "./src/cuckoo.js",
+  "main": "./src/index.js",
+  "exports": "./src/index.js",
   "license": "MIT",
   "author": "Boris A. Reif",
   "scripts": {

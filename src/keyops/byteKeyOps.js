@@ -1,3 +1,5 @@
+import { mix32 } from "../utils/hash32.js";
+
 /**
  * Key strategy for binary keys.
  *
@@ -11,28 +13,15 @@
  * - keys compare by byte content
  * - hashing is by byte content
  *
- * This strategy does not accept Blob directly because Blob requires async
- * byte extraction. Convert Blob to Uint8Array first.
+ * This strategy intentionally does not accept Blob directly because Blob
+ * requires asynchronous byte extraction. Convert Blob to Uint8Array first.
  */
-
-/**
- * Mix a 32-bit unsigned integer so nearby inputs spread out better.
- *
- * @param {number} x
- * @returns {number}
- */
-function mix32(x) {
-    x = x >>> 0;
-    x ^= x >>> 16;
-    x = Math.imul(x, 0x7feb352d);
-    x ^= x >>> 15;
-    x = Math.imul(x, 0x846ca68b);
-    x ^= x >>> 16;
-    return x >>> 0;
-}
 
 /**
  * Build one tabulation table for `positions` byte positions.
+ *
+ * The returned table has length positions * 256.
+ * Entry (pos, byte) lives at table[(pos << 8) | byte].
  *
  * @param {number} positions
  * @param {number} seed
@@ -108,6 +97,10 @@ function bytesEqual(a, b) {
 /**
  * Hash bytes using block-wise tabulation hashing.
  *
+ * The byte stream is processed in fixed-size blocks. Within each block, each
+ * byte position indexes a different precomputed random table. The resulting
+ * block hash is then mixed into the running hash value.
+ *
  * @param {Uint8Array} bytes
  * @param {Uint32Array} table
  * @param {number} positions
@@ -135,8 +128,8 @@ function hashBytes(bytes, table, positions) {
  * Create a byte-content key strategy.
  *
  * @param {Object} [options]
- * @param {number} [options.positions=4] - Bytes per block.
- * @param {number} [options.baseSeed=0x12345678] - Base seed for tabulation tables.
+ * @param {number} [options.positions=4] - Bytes per tabulation block.
+ * @param {number} [options.baseSeed=0x12345678] - Base seed for derived tables.
  * @returns {{hashBucket: Function, equals: Function, formatKey: Function}}
  */
 export function createByteKeyOps({
