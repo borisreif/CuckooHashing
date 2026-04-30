@@ -1,0 +1,17 @@
+{
+  "name": "bucketed-cuckoo-hash-map",
+  "version": "0.1.0",
+  "description": "Bucketed cuckoo hash map implementation in JavaScript.",
+  "type": "module",
+  "main": "cuckoo.js",
+  "exports": "./src/cuckoo.js",
+  "license": "MIT",
+  "author": "Boris A. Reif",
+  "scripts": {
+    "format": "prettier --write .",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "prettier": "^3.0.0"
+  }
+}
