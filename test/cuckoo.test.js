@@ -259,3 +259,57 @@ test("render returns a string and print uses the configured logger", () => {
     assert.ok(calls.length > 0);
     assert.ok(calls.some((msg) => msg.includes("Bucketed cuckoo map")));
 });
+
+test("stringNumberKeyOps default sameValueZero treats NaN as equal to NaN", () => {
+    const map = createBucketedCuckooMap({
+        bucketCount: 17,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps(),
+        logger: createSilentLogger()
+    });
+
+    map.set(NaN, "not-a-number");
+
+    assert.equal(map.get(NaN), "not-a-number");
+    assert.equal(map.has(NaN), true);
+    assert.equal(map.size(), 1);
+});
+
+test("stringNumberKeyOps default sameValueZero treats 0 and -0 as the same key", () => {
+    const map = createBucketedCuckooMap({
+        bucketCount: 17,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps(),
+        logger: createSilentLogger()
+    });
+
+    map.set(0, "zero");
+    map.set(-0, "minus-zero");
+
+    assert.equal(map.size(), 1);
+    assert.equal(map.get(0), "minus-zero");
+    assert.equal(map.get(-0), "minus-zero");
+});
+
+test("stringNumberKeyOps objectIs mode treats 0 and -0 as different keys", () => {
+    const map = createBucketedCuckooMap({
+        bucketCount: 17,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps({ equality: "objectIs" }),
+        logger: createSilentLogger()
+    });
+
+    map.set(0, "zero");
+    map.set(-0, "minus-zero");
+
+    assert.equal(map.size(), 2);
+    assert.equal(map.get(0), "zero");
+    assert.equal(map.get(-0), "minus-zero");
+});
+
+test("stringNumberKeyOps throws on unsupported equality mode", () => {
+    assert.throws(
+        () => createStringNumberKeyOps({ equality: "weird-mode" }),
+        /Unsupported equality mode/
+    );
+});

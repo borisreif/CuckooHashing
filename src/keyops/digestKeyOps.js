@@ -33,55 +33,53 @@ import { mix32, readUint32LE } from "../utils/hash32.js";
  * @returns {{hashBucket:Function, equals:Function, formatKey:Function}}
  */
 export function createDigestKeyOps({
-    encodeKey,
-    digestBytes,
-    equals = Object.is,
-    formatKey = (key) => String(key)
+  encodeKey,
+  digestBytes,
+  equals = Object.is,
+  formatKey = (key) => String(key),
 }) {
-    if (typeof encodeKey !== "function") {
-        throw new Error("encodeKey must be a function");
-    }
+  if (typeof encodeKey !== "function") {
+    throw new Error("encodeKey must be a function");
+  }
 
-    if (typeof digestBytes !== "function") {
-        throw new Error("digestBytes must be a function");
-    }
+  if (typeof digestBytes !== "function") {
+    throw new Error("digestBytes must be a function");
+  }
 
-    return {
-        /**
-         * Derive one bucket index from the digest output.
-         *
-         * We read two 32-bit words from the digest and derive the `which`-th
-         * hash from them.
-         *
-         * @param {*} key
-         * @param {number} which
-         * @param {number} bucketCount
-         * @returns {number}
-         */
-        hashBucket(key, which, bucketCount) {
-            const bytes = encodeKey(key);
-            const digest = digestBytes(bytes);
+  return {
+    /**
+     * Derive one bucket index from the digest output.
+     *
+     * We read two 32-bit words from the digest and derive the `which`-th
+     * hash from them.
+     *
+     * @param {*} key
+     * @param {number} which
+     * @param {number} bucketCount
+     * @returns {number}
+     */
+    hashBucket(key, which, bucketCount) {
+      const bytes = encodeKey(key);
+      const digest = digestBytes(bytes);
 
-            if (!(digest instanceof Uint8Array)) {
-                throw new TypeError("digestBytes must return a Uint8Array");
-            }
+      if (!(digest instanceof Uint8Array)) {
+        throw new TypeError("digestBytes must return a Uint8Array");
+      }
 
-            if (digest.length < 8) {
-                throw new Error("Digest must be at least 8 bytes long");
-            }
+      if (digest.length < 8) {
+        throw new Error("Digest must be at least 8 bytes long");
+      }
 
-            const h1 = readUint32LE(digest, 0);
-            const h2 = readUint32LE(digest, 4);
+      const h1 = readUint32LE(digest, 0);
+      const h2 = readUint32LE(digest, 4);
 
-            const h = which === 0
-                ? h1
-                : mix32(h2 ^ Math.imul(which + 1, 0x9e3779b9));
+      const h = which === 0 ? h1 : mix32(h2 ^ Math.imul(which + 1, 0x9e3779b9));
 
-            return h % bucketCount;
-        },
+      return h % bucketCount;
+    },
 
-        equals,
+    equals,
 
-        formatKey
-    };
+    formatKey,
+  };
 }

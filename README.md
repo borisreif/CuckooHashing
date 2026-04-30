@@ -245,6 +245,172 @@ policy layer on top of a map-like engine.
 
 ---
 
+## Equality semantics for `stringNumberKeyOps`
+
+The number/string key strategy supports two equality modes.
+
+### Default: `sameValueZero`
+
+This matches the behavior of JavaScript `Map` more closely.
+
+```text
+sameValueZero:
+  NaN   == NaN   -> true
+  0     == -0    -> true
+```
+
+This is the default because it is usually the least surprising behavior for a
+map.
+
+```js
+const keyOps = createStringNumberKeyOps();
+// same as:
+// createStringNumberKeyOps({ equality: "sameValueZero" })
+```
+
+### Optional: `objectIs`
+
+This uses `Object.is` semantics.
+
+```text
+Object.is:
+  NaN   == NaN   -> true
+  0     == -0    -> false
+```
+
+Use this mode if you explicitly want to distinguish `0` from `-0`.
+
+```js
+const keyOps = createStringNumberKeyOps({
+  equality: "objectIs"
+});
+```
+
+### Summary
+
+```text
+Mode            NaN equals NaN   0 equals -0   Typical use
+--------------  ---------------  ------------  -----------------------------
+sameValueZero   yes              yes           Map-like behavior (default)
+objectIs        yes              no            stricter numeric distinction
+```
+
+---
+
+## Resize, rehash, and stash: current policy and future directions
+
+The current project already supports **resizing**, and the design leaves room
+for **rehash** and **stash** strategies later.
+
+### Current policy: rebuild into a larger map
+
+The current wrapper `createResizableMap(...)` uses the simplest reliable
+strategy:
+
+1. collect all live entries from the current map
+2. create a new map with a larger `bucketCount`
+3. reinsert every entry into the new map
+4. swap the old map for the new one
+
+ASCII sketch:
+
+```text
+old map
+  |
+  v
++------------------+
+| bucketCount =  8 |
+| entries: A B C D |
++------------------+
+
+collect entries: [A, B, C, D]
+
+build new map
+  |
+  v
++------------------+
+| bucketCount = 16 |
+| entries: - - - - |
++------------------+
+
+reinsert A, B, C, D
+
+swap references
+```
+
+This is simple, explicit, and easy to test.
+
+### Why resize lives in a wrapper
+
+The cuckoo engine itself is responsible for:
+
+- placement
+- eviction
+- lookup
+- deletion
+- rendering / snapshotting
+
+The resize wrapper is responsible for policy:
+
+- when to grow
+- by how much to grow
+- whether to grow on failure
+- whether to grow proactively by load factor
+
+That keeps the engine cleaner and makes the policy reusable.
+
+### Current practical policies
+
+Right now the code supports two styles of resizing:
+
+```text
+grow on failure:
+  try insert -> if it fails -> build a larger map -> retry
+
+proactive growth:
+  if loadFactor() >= threshold -> grow before the next insert
+```
+
+### Future possibility: rehash with new seeds
+
+A rehash is slightly different from a resize.
+
+```text
+resize:
+  change bucketCount
+  rebuild the table
+
+rehash:
+  keep bucketCount the same
+  change the hash family / seeds
+  rebuild the table
+```
+
+Rehashing can help if the current table geometry is large enough but the hash
+choices happen to create an unlucky cycle.
+
+### Future possibility: stash
+
+A stash is a tiny overflow area for entries that could not be placed into their
+legal cuckoo buckets.
+
+```text
+normal table     + optional stash
+
+[ bucketed cuckoo engine ]   [ e1 e2 ... ]
+```
+
+This can reduce the number of full rebuilds, but it makes the logic more
+complex because lookups and deletes must check both:
+
+- the main cuckoo table
+- the stash
+
+That is why the current project keeps the simpler resize-first policy and leaves
+stash as a future extension.
+
+---
+
 ## Project layout
 
 ```text
