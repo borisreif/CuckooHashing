@@ -1,63 +1,26 @@
-import { baseHash, mix32 } from "./hashing.js";
-
 /**
- * Default bucket hash functions.
+ * Generic bucketed cuckoo map.
  *
- * Each function must return a valid bucket index in the range
- * [0, bucketCount - 1].
+ * This file does not know how a key should be hashed.
+ * It delegates key hashing and equality to a `keyOps` object.
  *
- * These functions are built on top of `baseHash(...)`, which first converts
- * supported keys into one 32-bit unsigned integer.
+ * Required keyOps interface:
+ *
+ * {
+ *   hashBucket(key, which, bucketCount) => number,
+ *   equals(a, b) => boolean,
+ *   formatKey?(key) => string
+ * }
+ *
+ * `which` is the hash-function number / table number.
  */
-export const DEFAULT_HASH_FUNCTIONS = [
-    (key, bucketCount) => baseHash(key) % bucketCount,
-    (key, bucketCount) => mix32(baseHash(key) ^ 0x9e3779b9) % bucketCount,
-    (key, bucketCount) => mix32(baseHash(key) ^ 0x85ebca6b) % bucketCount
-];
 
-/**
- * Bucketed cuckoo map implemented as a factory.
- *
- * Public API:
- *   const map = createBucketedCuckooMap({...});
- *   map.set(key, value)
- *   map.get(key)
- *   map.has(key)
- *   map.delete(key)
- *   map.clear()
- *   map.size()
- *   map.loadFactor()
- *   map.snapshot()
- *   map.render()
- *   map.print()
- *   map.locate(key)
- *   map.getConfig()
- *
- * Internal representation:
- * - numTables logical tables
- * - each table has bucketCount buckets
- * - each bucket has bucketSize slots
- * - all slots live in one flat 1D array called `cells`
- * - each occupied slot stores an entry object: { key, value }
- *
- * @param {Object} options
- * @param {number} [options.numTables=2]
- * @param {number} [options.bucketCount=11]
- * @param {number} [options.bucketSize=2]
- * @param {number} [options.maxKicks=20]
- * @param {Function[]} [options.hashFunctions=DEFAULT_HASH_FUNCTIONS]
- * @param {number[]} [options.tableToHash=[0,1]]
- * @param {boolean} [options.debug=false]
- * @param {Function} [options.logger=console.log]
- * @returns {Object} Public map API
- */
 export function createBucketedCuckooMap({
     numTables = 2,
     bucketCount = 11,
     bucketSize = 2,
     maxKicks = 20,
-    hashFunctions = DEFAULT_HASH_FUNCTIONS,
-    tableToHash = [0, 1],
+    keyOps,
     debug = false,
     logger = console.log
 } = {}) {
@@ -81,24 +44,16 @@ export function createBucketedCuckooMap({
         throw new Error("maxKicks must be a positive integer");
     }
 
-    if (!Array.isArray(hashFunctions) || hashFunctions.length === 0) {
-        throw new Error("hashFunctions must be a non-empty array");
+    if (!keyOps || typeof keyOps !== "object") {
+        throw new Error("keyOps must be provided");
     }
 
-    if (!Array.isArray(tableToHash) || tableToHash.length !== numTables) {
-        throw new Error("tableToHash length must equal numTables");
+    if (typeof keyOps.hashBucket !== "function") {
+        throw new Error("keyOps.hashBucket must be a function");
     }
 
-    for (const fn of hashFunctions) {
-        if (typeof fn !== "function") {
-            throw new Error("Every entry in hashFunctions must be a function");
-        }
-    }
-
-    for (const hashIndex of tableToHash) {
-        if (!Number.isInteger(hashIndex) || hashIndex < 0 || hashIndex >= hashFunctions.length) {
-            throw new Error("tableToHash contains an invalid hash-function index");
-        }
+    if (typeof keyOps.equals !== "function") {
+        throw new Error("keyOps.equals must be a function");
     }
 
     // ---------------------------------------------------------------------
@@ -109,30 +64,17 @@ export function createBucketedCuckooMap({
     const totalSize = numTables * tableSize;
     const EMPTY = Symbol("EMPTY");
 
-    // Flat storage. Each slot is either EMPTY or an entry: { key, value }.
     let cells = new Array(totalSize).fill(EMPTY);
-
-    // Number of stored entries.
     let count = 0;
 
     // ---------------------------------------------------------------------
-    // Internal logging helpers
+    // Logging helpers
     // ---------------------------------------------------------------------
 
-    /**
-     * Print a normal message through the configured logger.
-     *
-     * @param {...any} args
-     */
     function out(...args) {
         logger(...args);
     }
 
-    /**
-     * Print a debug message only when debug mode is enabled.
-     *
-     * @param {...any} args
-     */
     function debugLog(...args) {
         if (debug) {
             logger(...args);
@@ -140,14 +82,14 @@ export function createBucketedCuckooMap({
     }
 
     // ---------------------------------------------------------------------
-    // Internal indexing helpers
+    // Indexing helpers
     // ---------------------------------------------------------------------
 
     /**
      * Return the flat-array index of the first slot of a bucket.
      *
-     * @param {number} tableIdx - Logical table index.
-     * @param {number} bucketIdx - Bucket index within that table.
+     * @param {number} tableIdx
+     * @param {number} bucketIdx
      * @returns {number}
      */
     function bucketStart(tableIdx, bucketIdx) {
@@ -167,52 +109,43 @@ export function createBucketedCuckooMap({
     }
 
     // ---------------------------------------------------------------------
-    // Internal hashing helpers
+    // Hashing helpers
     // ---------------------------------------------------------------------
 
     /**
-     * Evaluate one configured bucket hash function for a key and validate
-     * that the result is a valid bucket index.
+     * Ask keyOps for the candidate bucket in each logical table.
      *
-     * @param {number} hashIndex
-     * @param {number|string} key
-     * @returns {number}
-     */
-    function hashBucket(hashIndex, key) {
-        const bucketIdx = hashFunctions[hashIndex](key, bucketCount);
-
-        if (!Number.isInteger(bucketIdx) || bucketIdx < 0 || bucketIdx >= bucketCount) {
-            throw new TypeError(
-                `Invalid bucket index ${bucketIdx} for key ${String(key)}`
-            );
-        }
-
-        return bucketIdx;
-    }
-
-    /**
-     * Return the candidate bucket for the given key in each logical table.
-     *
-     * For two tables this returns:
-     * [bucketInTable0, bucketInTable1]
-     *
-     * @param {number|string} key
+     * @param {*} key
      * @returns {number[]}
      */
     function candidateBuckets(key) {
-        return tableToHash.map((hashIndex) => hashBucket(hashIndex, key));
+        const buckets = new Array(numTables);
+
+        for (let which = 0; which < numTables; which++) {
+            const bucketIdx = keyOps.hashBucket(key, which, bucketCount);
+
+            if (!Number.isInteger(bucketIdx) || bucketIdx < 0 || bucketIdx >= bucketCount) {
+                throw new TypeError(
+                    `Invalid bucket index ${bucketIdx} for key ${String(key)}`
+                );
+            }
+
+            buckets[which] = bucketIdx;
+        }
+
+        return buckets;
     }
 
     // ---------------------------------------------------------------------
-    // Internal bucket/entry helpers
+    // Bucket / entry helpers
     // ---------------------------------------------------------------------
 
     /**
-     * Search one specific bucket for an entry with the given key.
+     * Search one bucket for an entry whose key equals the given key.
      *
      * @param {number} tableIdx
      * @param {number} bucketIdx
-     * @param {number|string} key
+     * @param {*} key
      * @returns {null|{tableIdx:number,bucketIdx:number,slotIdx:number,flatIndex:number,entry:Object}}
      */
     function findEntryInBucket(tableIdx, bucketIdx, key) {
@@ -220,7 +153,7 @@ export function createBucketedCuckooMap({
             const flatIndex = index(tableIdx, bucketIdx, slotIdx);
             const entry = cells[flatIndex];
 
-            if (entry !== EMPTY && entry.key === key) {
+            if (entry !== EMPTY && keyOps.equals(entry.key, key)) {
                 return {
                     tableIdx,
                     bucketIdx,
@@ -235,11 +168,11 @@ export function createBucketedCuckooMap({
     }
 
     /**
-     * Find an empty slot inside one specific bucket.
+     * Find an empty slot inside one bucket.
      *
      * @param {number} tableIdx
      * @param {number} bucketIdx
-     * @returns {number} Slot index if found, otherwise -1.
+     * @returns {number}
      */
     function findEmptySlot(tableIdx, bucketIdx) {
         for (let slotIdx = 0; slotIdx < bucketSize; slotIdx++) {
@@ -254,12 +187,9 @@ export function createBucketedCuckooMap({
     }
 
     /**
-     * Look up the position of a key.
+     * Find the current location of a key in the table.
      *
-     * If found, returns detailed location info and the entry itself.
-     * If not found, returns { found: false }.
-     *
-     * @param {number|string} key
+     * @param {*} key
      * @returns {Object}
      */
     function lookupPosition(key) {
@@ -298,7 +228,7 @@ export function createBucketedCuckooMap({
         cells[index(tableIdx, bucketIdx, slotIdx)] = entry;
 
         debugLog(
-            `[insert] key=${entry.key}, table=${tableIdx}, bucket=${bucketIdx}, slot=${slotIdx}`
+            `[insert] key=${formatKey(entry.key)}, table=${tableIdx}, bucket=${bucketIdx}, slot=${slotIdx}`
         );
 
         return true;
@@ -321,7 +251,7 @@ export function createBucketedCuckooMap({
         cells[victimFlatIndex] = entry;
 
         debugLog(
-            `[evict] inserted key=${entry.key}, table=${tableIdx}, bucket=${bucketIdx}, slot=${victimSlotIdx}; displaced key=${displaced.key}`
+            `[evict] inserted key=${formatKey(entry.key)}, table=${tableIdx}, bucket=${bucketIdx}, slot=${victimSlotIdx}; displaced key=${formatKey(displaced.key)}`
         );
 
         return displaced;
@@ -329,12 +259,6 @@ export function createBucketedCuckooMap({
 
     /**
      * Place an entry using bucketed cuckoo insertion.
-     *
-     * Algorithm:
-     * 1. Compute candidate buckets for the entry's key.
-     * 2. Try to place the entry into the current table's bucket.
-     * 3. If that bucket is full, evict one resident entry.
-     * 4. Recursively place the displaced entry into the next table.
      *
      * @param {{key:any,value:any}} entry
      * @param {number} tableIdx
@@ -344,7 +268,7 @@ export function createBucketedCuckooMap({
      */
     function placeEntry(entry, tableIdx, kickCount, limit) {
         if (kickCount >= limit) {
-            debugLog(`[fail] kick limit reached while inserting key=${entry.key}`);
+            debugLog(`[fail] kick limit reached while inserting key=${formatKey(entry.key)}`);
             return false;
         }
 
@@ -352,7 +276,7 @@ export function createBucketedCuckooMap({
         const bucketIdx = buckets[tableIdx];
 
         debugLog(
-            `[place] key=${entry.key}, candidates=${JSON.stringify(buckets)}, currentTable=${tableIdx}, kickCount=${kickCount}`
+            `[place] key=${formatKey(entry.key)}, candidates=${JSON.stringify(buckets)}, currentTable=${tableIdx}, kickCount=${kickCount}`
         );
 
         if (tryInsertEntryIntoBucket(tableIdx, bucketIdx, entry)) {
@@ -370,8 +294,22 @@ export function createBucketedCuckooMap({
     }
 
     // ---------------------------------------------------------------------
-    // Internal rendering helpers
+    // Rendering helpers
     // ---------------------------------------------------------------------
+
+    /**
+     * Convert one key to a display string.
+     *
+     * @param {*} key
+     * @returns {string}
+     */
+    function formatKey(key) {
+        if (typeof keyOps.formatKey === "function") {
+            return keyOps.formatKey(key);
+        }
+
+        return String(key);
+    }
 
     /**
      * Convert one slot value into a printable string.
@@ -384,7 +322,7 @@ export function createBucketedCuckooMap({
             return "-";
         }
 
-        return `${String(slot.key)}:${String(slot.value)}`;
+        return `${formatKey(slot.key)}:${String(slot.value)}`;
     }
 
     /**
@@ -465,11 +403,7 @@ export function createBucketedCuckooMap({
     /**
      * Insert or update a key/value pair.
      *
-     * If the key already exists, only its value is updated.
-     * If the key is new, cuckoo insertion is attempted.
-     * On insertion failure, the old table state is restored.
-     *
-     * @param {number|string} key
+     * @param {*} key
      * @param {*} value
      * @returns {boolean}
      */
@@ -478,7 +412,7 @@ export function createBucketedCuckooMap({
 
         if (existing.found) {
             existing.entry.value = value;
-            debugLog(`[update] key=${key} updated`);
+            debugLog(`[update] key=${formatKey(key)} updated`);
             return true;
         }
 
@@ -494,7 +428,7 @@ export function createBucketedCuckooMap({
 
         if (!inserted) {
             cells = backupCells;
-            debugLog(`[rollback] insertion failed for key=${key}; previous state restored`);
+            debugLog(`[rollback] insertion failed for key=${formatKey(key)}; previous state restored`);
             return false;
         }
 
@@ -505,7 +439,7 @@ export function createBucketedCuckooMap({
     /**
      * Return the value for a key, or undefined if the key is not present.
      *
-     * @param {number|string} key
+     * @param {*} key
      * @returns {*|undefined}
      */
     function get(key) {
@@ -516,7 +450,7 @@ export function createBucketedCuckooMap({
     /**
      * Test whether the map contains a key.
      *
-     * @param {number|string} key
+     * @param {*} key
      * @returns {boolean}
      */
     function has(key) {
@@ -526,7 +460,7 @@ export function createBucketedCuckooMap({
     /**
      * Delete a key/value pair from the map.
      *
-     * @param {number|string} key
+     * @param {*} key
      * @returns {boolean}
      */
     function del(key) {
@@ -538,7 +472,7 @@ export function createBucketedCuckooMap({
 
         cells[result.flatIndex] = EMPTY;
         count--;
-        debugLog(`[delete] key=${key} removed`);
+        debugLog(`[delete] key=${formatKey(key)} removed`);
         return true;
     }
 
@@ -597,7 +531,7 @@ export function createBucketedCuckooMap({
     /**
      * Return location details for a key.
      *
-     * @param {number|string} key
+     * @param {*} key
      * @returns {Object}
      */
     function locate(key) {
@@ -615,7 +549,6 @@ export function createBucketedCuckooMap({
             bucketCount,
             bucketSize,
             maxKicks,
-            tableToHash: tableToHash.slice(),
             debug,
             tableSize,
             totalSize
