@@ -13,13 +13,13 @@
  * @returns {number} 32-bit unsigned integer
  */
 export function mix32(x) {
-    x = x >>> 0;
-    x ^= x >>> 16;
-    x = Math.imul(x, 0x7feb352d);
-    x ^= x >>> 15;
-    x = Math.imul(x, 0x846ca68b);
-    x ^= x >>> 16;
-    return x >>> 0;
+  x = x >>> 0;
+  x ^= x >>> 16;
+  x = Math.imul(x, 0x7feb352d);
+  x ^= x >>> 15;
+  x = Math.imul(x, 0x846ca68b);
+  x ^= x >>> 16;
+  return x >>> 0;
 }
 
 /**
@@ -30,14 +30,14 @@ export function mix32(x) {
  * @returns {number}
  */
 export function hashString(str) {
-    let h = 2166136261 >>> 0;
+  let h = 2166136261 >>> 0;
 
-    for (let i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-    }
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
 
-    return h >>> 0;
+  return h >>> 0;
 }
 
 /**
@@ -54,19 +54,19 @@ export function hashString(str) {
  * @returns {number}
  */
 export function baseHash(key) {
-    if (typeof key === "string") {
-        return hashString(key);
+  if (typeof key === "string") {
+    return hashString(key);
+  }
+
+  if (typeof key === "number") {
+    if (!Number.isFinite(key)) {
+      throw new TypeError("Number keys must be finite");
     }
 
-    if (typeof key === "number") {
-        if (!Number.isFinite(key)) {
-            throw new TypeError("Number keys must be finite");
-        }
+    return hashString(String(key));
+  }
 
-        return hashString(String(key));
-    }
-
-    throw new TypeError(
-        `Unsupported key type: ${typeof key}. Only number and string keys are supported.`
-    );
+  throw new TypeError(
+    `Unsupported key type: ${typeof key}. Only number and string keys are supported.`,
+  );
 }

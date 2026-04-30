@@ -1,14 +1,17 @@
 # Bucketed Cuckoo Hash Map
 
 A small JavaScript implementation of a **bucketed cuckoo hash map** with a
-clean separation between:
+clear separation between:
 
 - the **generic cuckoo hashing engine**
 - the **key hashing / equality strategy**
+- the **resize policy wrapper**
 - demos and tests
 
-The project is intentionally designed as a teaching and experimentation codebase,
-but it is also structured like a reusable small library.
+The project is intentionally written as both:
+
+- a reusable small library, and
+- a teaching / experimentation codebase.
 
 ## References
 
@@ -16,6 +19,8 @@ but it is also structured like a reusable small library.
 - <https://en.wikipedia.org/wiki/Cuckoo_hashing>
 - <https://www.geeksforgeeks.org/dsa/cuckoo-hashing/>
 - <https://codecapsule.com/2013/07/20/cuckoo-hashing/>
+
+---
 
 ## What bucketed cuckoo hashing is
 
@@ -30,7 +35,7 @@ pressure on the insertion process and often improves practical load factors.
 
 When inserting a key:
 
-1. Compute the candidate bucket in each logical table.
+1. Compute the candidate bucket in each table.
 2. Try to place the entry in the current table's bucket.
 3. If there is a free slot, insertion succeeds immediately.
 4. If the bucket is full, evict one resident entry.
@@ -38,6 +43,8 @@ When inserting a key:
 6. Stop if the kick limit is reached.
 
 That eviction-and-reinsert step is the characteristic “cuckoo” move.
+
+---
 
 ## Logical vs physical layout
 
@@ -81,8 +88,13 @@ Table 1
 
 Derived sizes:
 
-- `tableSize = bucketCount * bucketSize = 3 * 2 = 6`
-- `totalSize = numTables * tableSize = 2 * 6 = 12`
+- `tableSize = bucketCount * bucketSize`
+- `totalSize = numTables * tableSize`
+
+The helper functions `bucketStart(...)` and `index(...)` convert from logical
+coordinates to a flat index.
+
+---
 
 ## Architecture
 
@@ -119,78 +131,185 @@ That means the cuckoo engine is completely generic with respect to key type.
 
 Files under `src/keyops/`
 
-These modules define how keys behave.
+These modules decide how keys are:
 
-#### `stringNumberKeyOps.js`
+- hashed into bucket indices
+- compared for equality
+- formatted for debug output
 
-- supports numbers and strings
-- compares keys by JS value
-- uses a 32-bit string/number hash and seed-derived bucket hashes
+Current strategies:
 
-#### `byteKeyOps.js`
+- `stringNumberKeyOps.js`
+- `byteKeyOps.js`
+- `digestKeyOps.js`
 
-- supports `Uint8Array`, `ArrayBuffer`, typed arrays, and `DataView`
-- compares keys by **byte content**
-- uses 32-bit **tabulation hashing**
+### 3. Resize policy wrapper
 
-#### `digestKeyOps.js`
+File: `src/createResizableMap.js`
 
-- supports a user-supplied external digest function
-- useful for content-addressable storage or digest-based keys
-- keeps the cuckoo engine independent of any specific cryptographic algorithm
+This wrapper is intentionally **generic** and not cuckoo-specific.
+It can wrap any compatible map engine.
 
-### 3. Demo and tests
+It is responsible for policies like:
 
-- `demo.js` — manual demo usage
-- `test/cuckoo.test.js` — automated tests using Node's built-in test runner
+- grow on insertion failure
+- optional proactive growth at a load-factor threshold
 
-## Why tabulation hashing is used for byte keys
+### 4. Demos and tests
 
-For byte-oriented keys, tabulation hashing is a good fit because it is:
+- demos: `demo*.js`
+- tests: `test/`
 
-- simple
-- fast in JavaScript
-- deterministic
-- easy to seed for multiple hash functions
+These are intentionally kept separate from the engine code.
 
-The idea is:
+---
 
-1. Split the byte stream into fixed-size blocks.
-2. For each byte position, look up a precomputed random 32-bit value.
-3. XOR those values together to get a block hash.
-4. Mix block hashes into a running 32-bit hash.
+## Why there is both `snapshot()` and `entries()`
 
-This gives a practical non-cryptographic byte hash that works well as an input
-to cuckoo bucket selection.
+These two methods answer different questions.
 
-## Public API
+### `snapshot()`
 
-```js
-const map = createBucketedCuckooMap({...});
+Use this when you want to inspect the physical structure of the table:
 
-map.set(key, value);
-map.get(key);
-map.has(key);
-map.delete(key);
-map.clear();
-map.size();
-map.loadFactor();
-map.snapshot();
-map.render();
-map.print();
-map.locate(key);
-map.getConfig();
+- which table
+- which bucket
+- which slot
+- which entries are where
+
+Example mental model:
+
+```text
+snapshot()  ->  "show me the whole table layout"
 ```
 
-## Example: strings and numbers
+### `entries()`
+
+Use this when you only care about the live key-value pairs.
+
+Example mental model:
+
+```text
+entries()   ->  "give me all stored pairs"
+```
+
+This is especially useful for:
+
+- resizing
+- rehashing
+- iteration
+- exporting the contents
+
+Example:
 
 ```js
-import { createBucketedCuckooMap } from "./src/cuckoo.js";
-import { createStringNumberKeyOps } from "./src/keyops/stringNumberKeyOps.js";
+[
+  { key: "name", value: "Boris" },
+  { key: 42, value: "answer" }
+]
+```
+
+---
+
+## How resizing works
+
+The current resize wrapper uses a simple and clean policy.
+
+1. Keep one current map instance.
+2. When growth is needed, collect all live entries.
+3. Build a new map with a larger `bucketCount`.
+4. Reinsert all entries into the new map.
+5. Swap the reference.
+6. Discard the old map.
+
+ASCII sketch:
+
+```text
+before resize:
+  current map  --->  [ engine A ]
+
+collect live entries:
+  [ {key, value}, {key, value}, ... ]
+
+build larger map:
+  next map     --->  [ engine B ]
+
+reinsert entries into engine B
+
+swap:
+  current map  --->  [ engine B ]
+```
+
+This means the resize logic is not tied specifically to cuckoo hashing. It is a
+policy layer on top of a map-like engine.
+
+---
+
+## Project layout
+
+```text
+src/
+  cuckoo.js                 generic bucketed cuckoo engine
+  createResizableMap.js     generic resize wrapper
+  index.js                  public package entrypoint
+  keyops/
+    stringNumberKeyOps.js   number/string strategy
+    byteKeyOps.js           byte-content strategy
+    digestKeyOps.js         digest-backed strategy
+  utils/
+    hash32.js               shared 32-bit hashing helpers
+
+demo-cuckoo.js              plain cuckoo engine demo
+demo.js                     resizable wrapper demo
+demo-bytes.js               byte-key demo
+demo-cas.js                 content-addressable / digest demo
+demo-sync.js                sync digest demo
+
+test/
+  cuckoo.test.js            engine tests
+  resizableMap.test.js      resize-wrapper tests
+```
+
+---
+
+## Installation / usage
+
+### Run tests
+
+```bash
+npm test
+```
+
+### Run a demo in Node
+
+```bash
+node demo.js
+```
+
+### Browser demo
+
+Use a small local server and open `index.html`.
+For example:
+
+```bash
+python -m http.server
+```
+
+---
+
+## Example: plain cuckoo map
+
+```js
+import {
+  createBucketedCuckooMap,
+  createStringNumberKeyOps
+} from "./src/index.js";
 
 const map = createBucketedCuckooMap({
+  numTables: 2,
   bucketCount: 11,
   bucketSize: 2,
+  maxKicks: 20,
   keyOps: createStringNumberKeyOps()
 });
 
@@ -202,47 +321,52 @@ console.log(map.get("hi"));
 map.print();
 ```
 
-## Example: byte keys
+## Example: resizable wrapper
 
 ```js
-import { createBucketedCuckooMap } from "./src/cuckoo.js";
-import { createByteKeyOps } from "./src/keyops/byteKeyOps.js";
+import {
+  createBucketedCuckooMap,
+  createResizableMap,
+  createStringNumberKeyOps
+} from "./src/index.js";
 
-const map = createBucketedCuckooMap({
-  bucketCount: 11,
-  bucketSize: 2,
-  keyOps: createByteKeyOps()
+const map = createResizableMap({
+  createMap: createBucketedCuckooMap,
+  mapOptions: {
+    numTables: 2,
+    bucketCount: 4,
+    bucketSize: 2,
+    maxKicks: 20,
+    keyOps: createStringNumberKeyOps()
+  },
+  growthFactor: 2,
+  maxLoadFactor: 0.8
 });
 
-const a = new Uint8Array([1, 2, 3]);
-const b = new Uint8Array([1, 2, 3]);
+map.set("a", 1);
+map.set("b", 2);
+map.set("c", 3);
 
-map.set(a, "payload");
-console.log(map.get(b)); // byte-content equality
+console.log(map.entries());
+map.print();
 ```
 
-## Running the demo
+---
 
-```bash
-node demo.js
-```
+## Current status / next steps
 
-## Running tests
+Current strengths:
 
-```bash
-npm test
-```
+- generic cuckoo engine
+- pluggable key strategies
+- generic resize wrapper
+- working demos
+- automated tests
 
-## Notes on semantics
+Natural next steps:
 
-This project deliberately allows different key semantics depending on the chosen
-key strategy.
-
-Examples:
-
-- strings/numbers: value semantics
-- byte keys: byte-content semantics
-- digest keys: depends on the supplied equality rule
-
-This is a feature, not an accident. The map engine stays generic, while the key
-strategy defines what “same key” means.
+- improve resize policy tuning
+- add rehash-with-new-seeds policy
+- consider a stash later
+- add iterators (`keys()`, `values()`, `entries()` as standard JS iterables)
+- expand README/examples

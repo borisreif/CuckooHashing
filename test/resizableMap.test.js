@@ -75,7 +75,7 @@ test("resizable map grows proactively when load factor threshold is reached", ()
         createMap: createBucketedCuckooMap,
         mapOptions: createMapOptions({ bucketCount: 4, bucketSize: 2 }),
         growthFactor: 2,
-        maxLoadFactor: 0.25
+        maxLoadFactor: 0.05
     });
 
     const before = map.getConfig().bucketCount;
@@ -95,7 +95,6 @@ test("resizable map grows proactively when load factor threshold is reached", ()
 test("resizable map keeps working after reactive growth", () => {
     const badKeyOps = {
         hashBucket(key, which, bucketCount) {
-            // Force all keys into bucket 0 in every table to provoke collisions.
             return 0;
         },
         equals(a, b) {
