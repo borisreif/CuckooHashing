@@ -150,3 +150,112 @@ test("digest key strategy can be plugged into the generic map", () => {
     assert.equal(map.get("hello"), "world");
     assert.equal(map.has("hello"), true);
 });
+
+test("locate returns details for existing keys and false for missing keys", () => {
+    const map = createBucketedCuckooMap({
+        bucketCount: 17,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps(),
+        logger: createSilentLogger()
+    });
+
+    map.set("alpha", 1);
+
+    const found = map.locate("alpha");
+    const missing = map.locate("missing");
+
+    assert.equal(found.found, true);
+    assert.equal(typeof found.tableIdx, "number");
+    assert.equal(typeof found.bucketIdx, "number");
+    assert.equal(typeof found.slotIdx, "number");
+    assert.equal(typeof found.flatIndex, "number");
+    assert.deepEqual(found.entry, { key: "alpha", value: 1 });
+
+    assert.deepEqual(missing, { found: false });
+});
+
+test("snapshot count and flat occupancy match size", () => {
+    const map = createBucketedCuckooMap({
+        bucketCount: 17,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps(),
+        logger: createSilentLogger()
+    });
+
+    map.set("a", 1);
+    map.set("b", 2);
+    map.set("c", 3);
+
+    const snap = map.snapshot();
+    const nonNullFlat = snap.flat.filter((slot) => slot !== null);
+
+    assert.equal(snap.count, map.size());
+    assert.equal(nonNullFlat.length, map.size());
+    assert.equal(snap.flat.length, map.getConfig().totalSize);
+
+    const entries = map.entries();
+    const entryKeys = entries.map((e) => e.key).sort();
+    const flatKeys = nonNullFlat.map((e) => e.key).sort();
+
+    assert.deepEqual(entryKeys, flatKeys);
+});
+
+test("entries reflects updates, deletes, and clear", () => {
+    const map = createBucketedCuckooMap({
+        bucketCount: 17,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps(),
+        logger: createSilentLogger()
+    });
+
+    map.set("x", 10);
+    map.set("y", 20);
+    map.set("x", 99); // update existing key
+
+    let entries = map.entries();
+    assert.equal(entries.length, 2);
+
+    const xEntry = entries.find((e) => e.key === "x");
+    const yEntry = entries.find((e) => e.key === "y");
+
+    assert.deepEqual(xEntry, { key: "x", value: 99 });
+    assert.deepEqual(yEntry, { key: "y", value: 20 });
+
+    map.delete("y");
+
+    entries = map.entries();
+    assert.equal(entries.length, 1);
+    assert.deepEqual(entries[0], { key: "x", value: 99 });
+
+    map.clear();
+
+    entries = map.entries();
+    assert.deepEqual(entries, []);
+    assert.equal(map.size(), 0);
+});
+
+test("render returns a string and print uses the configured logger", () => {
+    const calls = [];
+    const logger = (...args) => calls.push(args.join(" "));
+
+    const map = createBucketedCuckooMap({
+        bucketCount: 8,
+        bucketSize: 2,
+        keyOps: createStringNumberKeyOps(),
+        logger
+    });
+
+    map.set("hello", "world");
+
+    const rendered = map.render();
+
+    assert.equal(typeof rendered, "string");
+    assert.ok(rendered.includes("Bucketed cuckoo map"));
+    assert.ok(rendered.includes("Size:"));
+    assert.ok(rendered.includes("hello"));
+
+    map.print();
+
+    assert.ok(calls.length > 0);
+    assert.ok(calls.some((msg) => msg.includes("Bucketed cuckoo map")));
+});

@@ -172,3 +172,114 @@ test("clear still works after resize", () => {
     assert.equal(map.get("b"), undefined);
     assert.equal(map.loadFactor(), 0);
 });
+
+test("resizable map preserves updated values across resize", () => {
+    const map = createResizableMap({
+        createMap: createBucketedCuckooMap,
+        mapOptions: createMapOptions({ bucketCount: 4 }),
+        growthFactor: 2,
+        maxLoadFactor: null
+    });
+
+    map.set("a", 1);
+    map.set("a", 2);
+    map.set("b", 3);
+
+    map.resize(8);
+
+    assert.equal(map.get("a"), 2);
+    assert.equal(map.get("b"), 3);
+    assert.equal(map.size(), 2);
+});
+
+test("resizable map getConfig stays consistent after resize", () => {
+    const map = createResizableMap({
+        createMap: createBucketedCuckooMap,
+        mapOptions: createMapOptions({
+            numTables: 2,
+            bucketCount: 4,
+            bucketSize: 2
+        }),
+        growthFactor: 2,
+        maxLoadFactor: null
+    });
+
+    const before = map.getConfig();
+    assert.equal(before.bucketCount, 4);
+    assert.equal(before.tableSize, 8);
+    assert.equal(before.totalSize, 16);
+
+    map.resize(10);
+
+    const after = map.getConfig();
+    assert.equal(after.bucketCount, 10);
+    assert.equal(after.tableSize, 20);
+    assert.equal(after.totalSize, 40);
+    assert.equal(after.numTables, 2);
+    assert.equal(after.bucketSize, 2);
+});
+
+test("resizable map entries and snapshot stay consistent after resize", () => {
+    const map = createResizableMap({
+        createMap: createBucketedCuckooMap,
+        mapOptions: createMapOptions({ bucketCount: 4 }),
+        growthFactor: 2,
+        maxLoadFactor: null
+    });
+
+    map.set("k1", "v1");
+    map.set("k2", "v2");
+    map.set("k3", "v3");
+
+    map.resize(8);
+
+    const entries = map.entries();
+    const snap = map.snapshot();
+    const nonNullFlat = snap.flat.filter((slot) => slot !== null);
+
+    assert.equal(entries.length, map.size());
+    assert.equal(nonNullFlat.length, map.size());
+
+    const entryKeys = entries.map((e) => e.key).sort();
+    const flatKeys = nonNullFlat.map((e) => e.key).sort();
+
+    assert.deepEqual(entryKeys, flatKeys);
+});
+
+test("resizable map delete still works after proactive growth", () => {
+    const map = createResizableMap({
+        createMap: createBucketedCuckooMap,
+        mapOptions: createMapOptions({ bucketCount: 4, bucketSize: 2 }),
+        growthFactor: 2,
+        maxLoadFactor: 0.05
+    });
+
+    map.set("a", 1);
+    map.set("b", 2);
+
+    assert.equal(map.delete("a"), true);
+    assert.equal(map.get("a"), undefined);
+    assert.equal(map.has("a"), false);
+    assert.equal(map.size(), 1);
+});
+
+test("resizable map print delegates to the wrapped engine logger", () => {
+    const calls = [];
+    const logger = (...args) => calls.push(args.join(" "));
+
+    const map = createResizableMap({
+        createMap: createBucketedCuckooMap,
+        mapOptions: createMapOptions({
+            bucketCount: 4,
+            logger
+        }),
+        growthFactor: 2,
+        maxLoadFactor: null
+    });
+
+    map.set("x", 1);
+    map.print();
+
+    assert.ok(calls.length > 0);
+    assert.ok(calls.some((msg) => msg.includes("Bucketed cuckoo map")));
+});
