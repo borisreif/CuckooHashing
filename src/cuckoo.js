@@ -737,10 +737,11 @@ export function createBucketedCuckooMap({
    * Return all live entries as a flat array.
    *
    * @returns {{key:any,value:any}[]}
-   */
+   
   function entriesPublic() {
     return entries();
   }
+*/
 
   /**
    * Return a human-readable multiline string representation of the table.
@@ -795,7 +796,7 @@ export function createBucketedCuckooMap({
     size,
     loadFactor,
     snapshot,
-    entries: entriesPublic,
+    entries,
     render,
     print,
     locate,
